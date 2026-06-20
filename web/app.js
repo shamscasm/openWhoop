@@ -1997,6 +1997,7 @@ async function loadLive() {
   const startRawBtn = $("live-start-raw");
   const enableOptBtn = $("live-enable-optical");
   const stopRawBtn = $("live-stop-raw");
+  const copyLogBtn = $("live-copy-log");
   if (startRawBtn) startRawBtn.onclick = async () => {
     if (!ble?.connected) return alert('Not connected');
     try { await ble.startRawData(); alert('Raw data started (cmd 81)'); } catch (e) { alert('Failed: ' + e.message); }
@@ -2009,6 +2010,26 @@ async function loadLive() {
     if (!ble?.connected) return alert('Not connected');
     try { await ble.stopRawData(); alert('Raw data stopped (cmd 82)'); } catch (e) { alert('Failed: ' + e.message); }
   };
+  if (copyLogBtn) copyLogBtn.onclick = async () => {
+    const counts = ble?.getPacketCounts?.() ?? {};
+    const header = [
+      `=== WHOOF DEBUG LOG ===`,
+      `Time: ${new Date().toISOString()}`,
+      `BLE: ${ble?.connected ? 'connected' : 'disconnected'} (${ble?._family})`,
+      `Raw active: ${ble?._rawActive}`,
+      `Packet counts: ${JSON.stringify(counts)}`,
+      `Raw notif count: ${ble?._rawNotifCount ?? 0}`,
+      `=======================`,
+    ].join('\n');
+    const log = header + '\n' + (window.getDebugLog?.() ?? 'No log data');
+    try { await navigator.clipboard.writeText(log); alert('Log copied to clipboard!'); } catch { alert('Copy failed — check the log panel below'); }
+  };
+
+  // Also show packet counts in the status card
+  if (statusEl && ble?.connected) {
+    const counts = ble.getPacketCounts?.() ?? {};
+    statusEl.innerHTML += `<br><b>Packet counts:</b> ${JSON.stringify(counts)}`;
+  }
 }
 
 /* ───────────────────────────── Settings drawer ─────────────────────── */

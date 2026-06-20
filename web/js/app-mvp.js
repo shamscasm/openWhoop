@@ -51,6 +51,21 @@ let buffer = [];
 const FLUSH_INTERVAL_MS = 1000;
 let _statsInterval = null;
 let _flushInterval = null;
+
+// ─── Debug log buffer ───────────────────────────────────────────
+// Captures BLE events for diagnostics. Accessible from Live tab.
+const _debugLog = [];
+function debugLog(msg) {
+  const ts = new Date().toLocaleTimeString();
+  const entry = `[${ts}] ${msg}`;
+  _debugLog.push(entry);
+  if (_debugLog.length > 500) _debugLog.shift();
+  // Also post to the Live tab log panel if it exists
+  const el = document.getElementById('live-debug-log');
+  if (el) { el.textContent = _debugLog.join('\n'); el.scrollTop = el.scrollHeight; }
+}
+window.getDebugLog = () => _debugLog.join('\n');
+
 function showError(msg) {
   const el = $('mvp-error');
   if (el) { el.textContent = msg; el.style.display = 'block'; }
@@ -161,8 +176,10 @@ async function setupAndConnect(deviceToUse = null) {
 
   client.on('state', async (s) => {
     setStatus(s);
+    debugLog(`BLE state: ${s}`);
     if (s === 'connected' && client._family !== 'whoop5') {
-      try { await client.startRawData(); } catch (e) { console.warn('[raw] start failed', e); }
+      debugLog('Starting raw data mode (cmd 81)...');
+      try { await client.startRawData(); debugLog('startRawData OK'); } catch (e) { debugLog(`startRawData FAILED: ${e.message}`); }
     }
     if (s === 'disconnected' && client._rawActive) {
       try { client._rawActive = false; } catch {}
@@ -171,7 +188,11 @@ async function setupAndConnect(deviceToUse = null) {
 
   // Realtime sample: HR + (up to 4) RR intervals.
   let _lastHr = null;
+  let _hrSampleCount = 0;
   client.on('sample', (pkt) => {
+    _hrSampleCount++;
+    if (_hrSampleCount === 1) debugLog(`First HR sample received: ${pkt.heartRateBpm} bpm`);
+    if (_hrSampleCount % 60 === 0) debugLog(`HR stream: ${_hrSampleCount} samples total, latest=${pkt.heartRateBpm} bpm`);
     const hr = pkt.heartRateBpm;
     const rrList = Array.isArray(pkt.rrIntervalsMs) ? pkt.rrIntervalsMs : [];
     if (hr != null) {
@@ -231,9 +252,8 @@ async function setupAndConnect(deviceToUse = null) {
   let _sensorSampleCount = 0;
   client.on('sensorSample', (pkt) => {
     _sensorSampleCount++;
-    if (_sensorSampleCount === 1 || _sensorSampleCount % 100 === 0) {
-      diagOut(`[raw96] received ${_sensorSampleCount} sensor samples`);
-    }
+    if (_sensorSampleCount === 1) debugLog(`FIRST sensor sample! HR=${pkt.heartRateBpm} SpO2=${pkt.spo2Pct} temp=${pkt.skinTempC} motion=${pkt.motion}`);
+    if (_sensorSampleCount % 50 === 0) debugLog(`Sensor stream: ${_sensorSampleCount} samples, latest HR=${pkt.heartRateBpm} SpO2=${pkt.spo2Pct} motion=${pkt.motion}`);
     const tsUtc = isoUtcNow();
     buffer.push({
       ts_utc: tsUtc, session_id: currentSession, sequence: pkt.seq,
@@ -258,8 +278,13 @@ async function setupAndConnect(deviceToUse = null) {
 
   // Raw unframed notifications during raw data mode — log packet sizes to
   // help identify what the strap actually sends.
+  let _rawNotifCount = 0;
   client.on('rawNotification', ({ length, hex }) => {
     _rawModeNotifs.push({ length, hex });
+    _rawNotifCount++;
+    if (_rawNotifCount <= 5 || _rawNotifCount % 50 === 0) {
+      debugLog(`rawNotification #${_rawNotifCount}: ${length} bytes — ${hex}`);
+    }
   });
 
   // Historical samples streamed in by SEND_HISTORICAL_DATA flow.
@@ -324,6 +349,7 @@ async function setupAndConnect(deviceToUse = null) {
 
   client.on('historyStart', () => {
     setDataStatus('Backfilling from strap…');
+    debugLog('Backfill START');
     diagOut('[backfill] START received');
   });
   client.on('historyProgress', ({ samples, trim }) => {
@@ -337,6 +363,7 @@ async function setupAndConnect(deviceToUse = null) {
     // Suppressed from diag (too noisy) — just counts in progress.
   });
   client.on('historyComplete', async ({ samples }) => {
+    debugLog(`Backfill COMPLETE: ${samples} samples`);
     setDataStatus(`Backfill done: ${samples.toLocaleString()} samples — recomputing…`, 'var(--rec-good)');
     await flushLoop();
     if (db) await logEvent(db, 'backfill', `samples=${samples}`);
@@ -365,6 +392,7 @@ async function setupAndConnect(deviceToUse = null) {
   });
   client.on('historyError', (err) => {
     const msg = err?.message ?? String(err);
+    debugLog(`Backfill ERROR: ${msg}`);
     setDataStatus('Backfill error: ' + msg, '#f55');
     console.error('[mvp] backfill error', err);
     // Ensure raw data mode is active even if backfill failed.
@@ -384,6 +412,7 @@ async function setupAndConnect(deviceToUse = null) {
   });
 
   client.on('hello', (hello) => {
+    debugLog(`Hello: serial=${hello.serial} worn=${hello.isWorn} charging=${hello.charging}`);
     if (db) logEvent(db, 'hello', JSON.stringify(hello)).catch(() => {});
     updateStrapIndicators(hello.isWorn, hello.charging);
   });
@@ -414,9 +443,13 @@ async function setupAndConnect(deviceToUse = null) {
 
   client.on('error', (err) => {
     console.error('[mvp] ble error', err);
+    debugLog(`BLE error: ${err?.message ?? err}`);
     const friendly = friendlyBleError(err);
     if (friendly !== null) showError(friendly);
   });
+
+  // Capture internal debug events from the BLE client
+  client.on('_debug', (msg) => debugLog(msg));
 
   try {
     if (deviceToUse) {

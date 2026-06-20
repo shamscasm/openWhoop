@@ -101,6 +101,8 @@ export class WhoopClient {
     this._state = 'disconnected';
     this._family = 'whoop4';   // resolved per-connection from the discovered service
     this._physiologyGapMs = 250;  // inter-command spacing for the 5.0 capture sequence
+    this._packetCounts = {};      // packet type → count since connect
+    this._rawNotifCount = 0;      // unframed notification count
 
     // Cached strap state surfaced to the UI:
     this.charging = null;
@@ -228,36 +230,33 @@ export class WhoopClient {
 
   async _postConnectFlow() {
     // 1. Strap identity / status
-    try { await this.sendHello(); } catch (e) { this._emit('error', e); }
+    try { await this.sendHello(); this._emit('_debug', 'sendHello OK'); } catch (e) { this._emit('error', e); this._emit('_debug', `sendHello FAIL: ${e.message}`); }
 
-    // 2. Time sync — Web BLE doesn't always surface RTC_LOST quickly enough,
-    //    so we proactively check current strap clock and set if drifted.
+    // 2. Time sync
     try {
       const strapUnix = await this.getClock();
       const hostUnix = Math.floor(Date.now() / 1000);
+      this._emit('_debug', `clock: strap=${strapUnix} host=${hostUnix} drift=${Math.abs(hostUnix - (strapUnix||0))}s`);
       if (strapUnix && Math.abs(hostUnix - strapUnix) > RTC_DRIFT_THRESHOLD_S) {
         await this.setClock();
       }
     } catch (e) { this._emit('error', e); }
 
-    // 2b. For 5.0, disable R10/R11 optical flood before backfill to save BLE
-    //     bandwidth. For 4.0, NEVER send this — cmd 63 [0x00] powers down the
-    //     optical sensor hardware. Once disabled, cmd 81 (START_RAW_DATA) can
-    //     NOT re-enable it. The 4.0 BLE stack handles both streams fine.
+    // 2b. R10/R11 optical disable — 5.0 only
     if (this._family === 'whoop5') {
       try {
         await this._sendCommand(CommandNumber.SEND_R10_R11_REALTIME, new Uint8Array([0x00]));
+        this._emit('_debug', 'cmd 63 [0x00] sent (5.0 only)');
       } catch (e) { this._emit('error', e); }
+    } else {
+      this._emit('_debug', 'cmd 63 SKIPPED (4.0)');
     }
 
-    // 3. Start realtime HR/RR stream IMMEDIATELY so the live display works.
-    try {
-      await this.startRealtime();
-    } catch (e) { this._emit('error', e); }
+    // 3. Start realtime HR/RR stream
+    try { await this.startRealtime(); this._emit('_debug', 'startRealtime OK (cmd 3)'); } catch (e) { this._emit('error', e); }
 
-    // 4. Backfill historical data — fire-and-forget so it doesn't block live.
-    //     The strap paces history at ~10 rec/s, so a full 14-day drain can take
-    //     many minutes. Run it in the background.
+    // 4. Backfill historical data
+    this._emit('_debug', 'downloadHistory starting...');
     this.downloadHistory().catch((e) => this._emit('error', e));
 
     // 4b. (5.0 only) Poke the diag characteristic for skin-temp candidates.
@@ -352,15 +351,23 @@ export class WhoopClient {
   _decodeNotification(e) {
     const v = bytesOf(e.target.value);
     if (this._family === 'whoop5') return { packets: decodeV5(v) };
-    try { return { packets: [WhoopPacket.fromData(v)] }; }
+    try {
+      const pkt = WhoopPacket.fromData(v);
+      const typeName = PacketType[pkt.type] ?? `type_${pkt.type}`;
+      this._packetCounts[typeName] = (this._packetCounts[typeName] || 0) + 1;
+      return { packets: [pkt] };
+    }
     catch {
       // Unframed notification — try 96-byte REALTIME_RAW_DATA (SpO₂/temp/accel).
       const sensor = parseRealtimeRaw(v);
       if (sensor) {
+        this._packetCounts['RAW96_PARSED'] = (this._packetCounts['RAW96_PARSED'] || 0) + 1;
         this._emit('sensorSample', sensor);
         return { packets: [], error: null };
       }
       // When raw data mode is active, emit raw notification for inspection.
+      this._rawNotifCount++;
+      this._packetCounts['UNFRAMED'] = (this._packetCounts['UNFRAMED'] || 0) + 1;
       if (this._rawActive) {
         const hex = Array.from(v.subarray(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ');
         this._emit('rawNotification', { length: v.length, hex });
@@ -373,6 +380,14 @@ export class WhoopClient {
     const { packets, error } = this._decodeNotification(e);
     if (error) { this._emit('error', error); return; }
     for (const pkt of packets) this._handleDataPacket(pkt);
+  }
+
+  /**
+   * Returns counts of packets received by type since connect.
+   * Useful for debugging what the strap is actually sending.
+   */
+  getPacketCounts() {
+    return { ...this._packetCounts };
   }
 
   _handleDataPacket(pkt) {
@@ -593,7 +608,7 @@ export class WhoopClient {
   async startRawData() {
     await this._sendCommand(CommandNumber.START_RAW_DATA, new Uint8Array([0x01]));
     this._rawActive = true;
-    console.log('[WhoopClient] raw data mode ENABLED (cmd 81)');
+    this._emit('_debug', 'START_RAW_DATA sent (cmd 81 [0x01]) — rawActive=true');
   }
 
   async stopRawData() {
