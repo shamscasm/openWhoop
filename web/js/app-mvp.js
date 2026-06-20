@@ -161,10 +161,9 @@ async function setupAndConnect(deviceToUse = null) {
 
   client.on('state', async (s) => {
     setStatus(s);
-    // Raw data mode is started AFTER backfill completes (in historyComplete
-    // handler below) to avoid racing with the R10/R11 disable in
-    // _postConnectFlow(). Starting on connect would be immediately overridden
-    // by cmd 63 [0x00] which disables optical data for backfill throughput.
+    if (s === 'connected' && client._family !== 'whoop5') {
+      try { await client.startRawData(); } catch (e) { console.warn('[raw] start failed', e); }
+    }
     if (s === 'disconnected' && client._rawActive) {
       try { client._rawActive = false; } catch {}
     }
@@ -229,7 +228,12 @@ async function setupAndConnect(deviceToUse = null) {
 
   // 96-byte REALTIME_RAW_DATA packets from unframed notifications (SpO₂,
   // skin temp, accel). Write to DB and log to diagnostics.
+  let _sensorSampleCount = 0;
   client.on('sensorSample', (pkt) => {
+    _sensorSampleCount++;
+    if (_sensorSampleCount === 1 || _sensorSampleCount % 100 === 0) {
+      diagOut(`[raw96] received ${_sensorSampleCount} sensor samples`);
+    }
     const tsUtc = isoUtcNow();
     buffer.push({
       ts_utc: tsUtc, session_id: currentSession, sequence: pkt.seq,
@@ -320,12 +324,6 @@ async function setupAndConnect(deviceToUse = null) {
 
   client.on('historyStart', () => {
     setDataStatus('Backfilling from strap…');
-    // Stop raw data mode if active — the unframed flood competes with backfill
-    // for BLE airtime and can starve the meta queue.
-    if (client._rawActive) {
-      client.stopRawData().catch(() => {});
-      diagOut('raw-mode: auto-stopped for backfill');
-    }
     diagOut('[backfill] START received');
   });
   client.on('historyProgress', ({ samples, trim }) => {
@@ -354,11 +352,12 @@ async function setupAndConnect(deviceToUse = null) {
     } catch (err) {
       setDataStatus(`Backfill saved but rollup failed: ${err.message ?? err}`, '#f55');
     }
-    // Restart raw data mode for 4.0 straps — it was stopped during backfill
-    // to avoid BLE congestion. Without this, SpO2, skin temp, accel/motion,
-    // and step tracking all stay dead until reconnect.
-    if (client && client._family !== 'whoop5' && !client._rawActive) {
+    // Safety: ensure raw data mode is active after backfill. Re-enable the
+    // R10/R11 optical stream first (it was disabled for backfill bandwidth),
+    // then restart raw data mode.
+    if (client && client._family !== 'whoop5') {
       try {
+        await client.enableR10R11();
         await client.startRawData();
         diagOut('[raw-mode] restarted after backfill');
       } catch (e) {
@@ -370,10 +369,9 @@ async function setupAndConnect(deviceToUse = null) {
     const msg = err?.message ?? String(err);
     setDataStatus('Backfill error: ' + msg, '#f55');
     console.error('[mvp] backfill error', err);
-    // Even if backfill failed, restart raw data mode so SpO2/temp/motion
-    // still work during the live session.
-    if (client && client._family !== 'whoop5' && !client._rawActive) {
-      client.startRawData().catch(() => {});
+    // Ensure raw data mode is active even if backfill failed.
+    if (client && client._family !== 'whoop5') {
+      client.enableR10R11().then(() => client.startRawData()).catch(() => {});
     }
   });
 

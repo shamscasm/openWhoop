@@ -589,11 +589,21 @@ export class WhoopClient {
   async startRawData() {
     await this._sendCommand(CommandNumber.START_RAW_DATA, new Uint8Array([0x01]));
     this._rawActive = true;
+    console.log('[WhoopClient] raw data mode ENABLED (cmd 81)');
   }
 
   async stopRawData() {
     await this._sendCommand(CommandNumber.STOP_RAW_DATA, new Uint8Array([0x01]));
     this._rawActive = false;
+  }
+
+  /**
+   * Re-enable the R10/R11 optical data stream. This is disabled by
+   * _postConnectFlow() before backfill to save BLE bandwidth. Must be
+   * called before startRawData() after backfill completes.
+   */
+  async enableR10R11() {
+    await this._sendCommand(CommandNumber.SEND_R10_R11_REALTIME, new Uint8Array([0x01]));
   }
 
   /**
