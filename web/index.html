@@ -632,6 +632,15 @@
       <span class="panel-date" id="live-status"></span>
     </header>
     <div class="grid grid-live">
+      <div class="card span-4" id="live-data-status-card">
+        <div class="card-eyebrow">Data stream status</div>
+        <div id="live-data-status" style="font-size:12px;color:var(--text-muted);line-height:1.6;word-break:break-all;"></div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+          <button id="live-start-raw" class="btn-sm" style="font-size:11px;padding:4px 10px;">Start Raw Data</button>
+          <button id="live-enable-optical" class="btn-sm" style="font-size:11px;padding:4px 10px;">Enable R10/R11</button>
+          <button id="live-stop-raw" class="btn-sm" style="font-size:11px;padding:4px 10px;">Stop Raw Data</button>
+        </div>
+      </div>
       <div class="card">
         <div class="card-eyebrow">Heart rate</div>
         <div class="big-num"><span id="live-hr">—</span><span class="unit">bpm</span></div>

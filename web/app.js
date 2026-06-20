@@ -1881,6 +1881,30 @@ async function loadActivity() {
 async function loadLive() {
   const data = await fetchJSON("/api/live?seconds=300");
   const last = data.latest_sample;
+
+  // ─── Data stream status card ─────────────────────────────────
+  const statusEl = document.getElementById("live-data-status");
+  if (statusEl) {
+    const ble = window.whoofBleClient;
+    const rawActive = ble?._rawActive ?? false;
+    const connected = ble?.connected ?? false;
+    const family = ble?._family ?? '?';
+    const points5m = data.points?.length ?? 0;
+    const hasSpo2 = data.points?.some(p => p.spo2 != null) ?? false;
+    const hasTemp = data.points?.some(p => p.temp != null) ?? false;
+    const hasMotion = data.points?.some(p => p.motion != null) ?? false;
+    const liveSteps = data.live_steps?.steps;
+    const lines = [
+      `<b>BLE:</b> ${connected ? 'connected' : 'disconnected'} (${family})`,
+      `<b>Raw data mode:</b> ${rawActive ? '✅ ACTIVE' : '❌ INACTIVE'}`,
+      `<b>Points (5 min):</b> ${points5m}`,
+      `<b>Sensor data in window:</b> SpO2=${hasSpo2 ? '✅' : '❌'} Temp=${hasTemp ? '✅' : '❌'} Motion=${hasMotion ? '✅' : '❌'}`,
+      `<b>Live steps:</b> ${liveSteps ?? '—'}`,
+      `<b>Latest HR:</b> ${last?.heart_rate_bpm ?? '—'} | SpO2=${last?.spo2_pct ?? '—'} | Temp=${last?.skin_temp_c?.toFixed(1) ?? '—'} | Motion=${last?.motion ?? '—'}`,
+    ];
+    statusEl.innerHTML = lines.join('<br>');
+  }
+
   if (last) {
     $("live-hr").textContent = fmtInt(last.heart_rate_bpm);
     const liveResp = document.getElementById("live-resp");
@@ -1967,6 +1991,24 @@ async function loadLive() {
     <div class="kv-row"><span class="k">Effective rate</span><span class="v">${sampleRate.toFixed(2)} Hz</span></div>
     <div class="kv-row"><span class="k">Server time</span><span class="v">${new Date(data.now_utc).toLocaleTimeString()}</span></div>
   `;
+
+  // ─── Debug buttons for raw data mode ─────────────────────────
+  const ble = window.whoofBleClient;
+  const startRawBtn = $("live-start-raw");
+  const enableOptBtn = $("live-enable-optical");
+  const stopRawBtn = $("live-stop-raw");
+  if (startRawBtn) startRawBtn.onclick = async () => {
+    if (!ble?.connected) return alert('Not connected');
+    try { await ble.startRawData(); alert('Raw data started (cmd 81)'); } catch (e) { alert('Failed: ' + e.message); }
+  };
+  if (enableOptBtn) enableOptBtn.onclick = async () => {
+    if (!ble?.connected) return alert('Not connected');
+    try { await ble.enableR10R11(); alert('R10/R11 optical enabled (cmd 63 [0x01])'); } catch (e) { alert('Failed: ' + e.message); }
+  };
+  if (stopRawBtn) stopRawBtn.onclick = async () => {
+    if (!ble?.connected) return alert('Not connected');
+    try { await ble.stopRawData(); alert('Raw data stopped (cmd 82)'); } catch (e) { alert('Failed: ' + e.message); }
+  };
 }
 
 /* ───────────────────────────── Settings drawer ─────────────────────── */
