@@ -123,12 +123,14 @@ async function latestNonNullMotion(d, seconds = 3600) {
 
 function withLatestVitals(sample, vitals) {
   if (!sample) return sample;
+  const motion = sampleMotion(sample);
   return {
     ...sample,
     spo2_pct: sample.spo2_pct ?? vitals.spo2_pct,
     skin_temp_c: sample.skin_temp_c ?? sample.skin_temp_est_c ?? vitals.skin_temp_c,
     respiratory_rate: sample.respiratory_rate ?? vitals.respiratory_rate,
     skin_temp_raw: sample.skin_temp_raw ?? vitals.skin_temp_raw,
+    motion: motion ?? sample.motion ?? null,
   };
 }
 
