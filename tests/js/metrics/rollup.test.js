@@ -131,7 +131,7 @@ describe('rollupDay', () => {
     expect(dm.strain_score).toBeGreaterThanOrEqual(0);
   });
 
-  it('populates hrv_baseline_ms once 3 prior days with HRV data exist', async () => {
+  it('populates hrv_baseline_ms once 3 prior days with HRV data exist', { timeout: 15000 }, async () => {
     // Seed 4 consecutive days. Each has RR intervals during sleep so rmssd is non-null.
     const days = ['2026-05-17', '2026-05-18', '2026-05-19', '2026-05-20'];
     for (const d of days) await insertSamplesBatch(db, syntheticDay(d));

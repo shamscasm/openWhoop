@@ -1,4 +1,4 @@
-// IndexedDB schema for whoof v0.3.
+// IndexedDB schema for whoof.
 // Mirrors the SQLite schema in whoof/db.py:15-110 so the Python rollups
 // can serve as a porting reference.
 

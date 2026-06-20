@@ -6,6 +6,7 @@ The HTML/JS lives in web/ and renders via small JSON endpoints served here.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import sqlite3
@@ -17,6 +18,14 @@ from urllib.parse import parse_qs, urlparse
 from . import db, metrics, zones
 
 logger = logging.getLogger(__name__)
+
+def _safe_int(value: str | None, default: int, min_val: int = 0, max_val: int = 100_000) -> int:
+    """Parse an int from a query string value, clamping to [min_val, max_val]."""
+    try:
+        v = int(value) if value is not None else default
+        return max(min_val, min(max_val, v))
+    except (ValueError, TypeError):
+        return default
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -37,7 +46,10 @@ HEALTH_METRIC_MAP = {
 
 
 def _to_local_iso(dt_utc_iso: str) -> str:
-    return datetime.fromisoformat(dt_utc_iso).astimezone().isoformat(timespec="seconds")
+    try:
+        return datetime.fromisoformat(dt_utc_iso).astimezone().isoformat(timespec="seconds")
+    except (ValueError, TypeError):
+        return dt_utc_iso
 
 
 def _today_range_utc(day: date | None = None) -> tuple[str, str]:
@@ -58,7 +70,10 @@ def _row(row: sqlite3.Row | None) -> dict | None:
 def _parse_date(s: str | None) -> date:
     if not s:
         return date.today()
-    return date.fromisoformat(s)
+    try:
+        return date.fromisoformat(s)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid date format: {s!r}. Expected YYYY-MM-DD.")
 
 
 def _decode_json_field(v):
@@ -501,6 +516,33 @@ def api_live(con: sqlite3.Connection, seconds: int = 300) -> dict:
 
 class Handler(BaseHTTPRequestHandler):
     db_path: str | None = None
+    auth_token: str | None = None
+    _db_cache: sqlite3.Connection | None = None
+
+    @classmethod
+    def get_db(cls) -> sqlite3.Connection:
+        if cls._db_cache is None:
+            cls._db_cache = db.connect(cls.db_path)
+        return cls._db_cache
+
+    def _check_auth(self) -> bool:
+        """Return True if auth passes (or no auth configured)."""
+        if not self.auth_token:
+            return True
+        auth = self.headers.get("Authorization", "")
+        if hmac.compare_digest(auth, f"Bearer {self.auth_token}"):
+            return True
+        # Allow token as query param for simple browser access
+        url = urlparse(self.path)
+        qs = parse_qs(url.query)
+        token_param = qs.get("token", [None])[0]
+        if token_param and hmac.compare_digest(token_param, self.auth_token):
+            return True
+        self.send_response(401)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(b'{"error":"unauthorized","message":"Missing or invalid Bearer token."}')
+        return False
 
     def _json(self, payload, status: int = 200) -> None:
         body = json.dumps(payload, default=str).encode("utf-8")
@@ -552,6 +594,8 @@ class Handler(BaseHTTPRequestHandler):
         logger.debug("HTTP " + fmt, *args)
 
     def do_GET(self) -> None:
+        if not self._check_auth():
+            return
         url = urlparse(self.path)
         qs = parse_qs(url.query)
 
@@ -564,20 +608,20 @@ class Handler(BaseHTTPRequestHandler):
         if not url.path.startswith("/api/"):
             return self._static(url.path.lstrip("/"))
 
-        con = db.connect(self.db_path)
+        con = self.get_db()
         try:
             day = qs.get("date", [None])[0]
             if url.path == "/api/status":
                 return self._json(api_status(con))
             if url.path == "/api/today":
-                step = int(qs.get("downsample", ["30"])[0])
+                step = _safe_int(qs.get("downsample", [None])[0], 30, 1, 3600)
                 return self._json(api_today(con, downsample=step))
             if url.path == "/api/history":
-                days = int(qs.get("days", ["30"])[0])
+                days = _safe_int(qs.get("days", [None])[0], 30, 1, 3650)
                 return self._json(api_history(con, days=days))
             if url.path == "/api/recompute":
                 age_arg = qs.get("age", [None])[0]
-                age = int(age_arg) if age_arg else None
+                age = _safe_int(age_arg, 0, 1, 120) if age_arg else None
                 return self._json(api_recompute(con, age=age))
             if url.path == "/api/overview":
                 return self._json(api_overview(con))
@@ -589,36 +633,40 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(api_strain(con, day_iso=day))
             if url.path == "/api/trends":
                 metric = qs.get("metric", ["recovery_score"])[0]
-                days = int(qs.get("days", ["30"])[0])
+                days = _safe_int(qs.get("days", [None])[0], 30, 1, 3650)
                 return self._json(api_trends(con, metric=metric, days=days))
             if url.path == "/api/workouts":
-                days = int(qs.get("days", ["30"])[0])
+                days = _safe_int(qs.get("days", [None])[0], 30, 1, 3650)
                 return self._json(api_workouts(con, days=days))
             if url.path == "/api/profile":
                 return self._json(api_profile_get(con))
             if url.path == "/api/live":
-                secs = int(qs.get("seconds", ["300"])[0])
+                secs = _safe_int(qs.get("seconds", [None])[0], 300, 10, 3600)
                 return self._json(api_live(con, seconds=secs))
             if url.path == "/api/health/latest":
                 return self._json(api_health_latest())
         except Exception as exc:
             logger.exception("API error on %s", url.path)
-            return self._json({"error": str(exc)}, status=500)
-        finally:
-            con.close()
+            return self._json({"error": "internal_error", "message": "An unexpected error occurred. Check server logs for details."}, status=500)
 
         self.send_error(404, f"Not found: {url.path}")
 
     def do_POST(self) -> None:
+        if not self._check_auth():
+            return
         url = urlparse(self.path)
         length = int(self.headers.get("Content-Length") or 0)
+        if length > 1_048_576:  # 1 MB cap
+            return self._json({"error": "payload_too_large", "message": "Request body exceeds 1 MB limit."}, status=413)
         body = self.rfile.read(length) if length else b""
         try:
             payload = json.loads(body.decode("utf-8")) if body else {}
         except ValueError:
             return self._json({"error": "invalid json"}, status=400)
+        if not isinstance(payload, dict):
+            return self._json({"error": "bad_request", "message": "JSON body must be an object."}, status=400)
 
-        con = db.connect(self.db_path)
+        con = self.get_db()
         try:
             if url.path == "/api/profile":
                 return self._json(api_profile_post(con, payload))
@@ -629,16 +677,17 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(api_health_ingest(payload))
         except Exception as exc:
             logger.exception("API POST error on %s", url.path)
-            return self._json({"error": str(exc)}, status=500)
-        finally:
-            con.close()
+            return self._json({"error": "internal_error", "message": "An unexpected error occurred. Check server logs for details."}, status=500)
 
         self.send_error(404, f"Not found: {url.path}")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8765, db_path: str | None = None) -> None:
+def serve(host: str = "127.0.0.1", port: int = 8765, db_path: str | None = None, auth_token: str | None = None) -> None:
     Handler.db_path = db_path
+    Handler.auth_token = auth_token
     server = ThreadingHTTPServer((host, port), Handler)
+    if host != "127.0.0.1" and host != "localhost" and not auth_token:
+        logger.warning("⚠️  Dashboard bound to %s without auth. Anyone on the network can read your health data. Pass --token to secure it.", host)
     logger.info("Dashboard running at http://%s:%d", host, port)
     try:
         server.serve_forever()

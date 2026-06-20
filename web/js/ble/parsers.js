@@ -5,7 +5,7 @@
 // vendor/whoomp/scripts/parser.py (HISTORICAL). They are NOT the offsets used
 // by whoop-reader's parser.py — that one is wrong about the framing.
 
-import { PacketType, MetadataType, EventNumber, EventName } from './packet.js';
+import { PacketType, MetadataType, EventNumber, EventName, CommandName } from './packet.js';
 
 function u16le(d, off) { return d[off] | (d[off + 1] << 8); }
 function i16le(d, off) {
@@ -19,9 +19,11 @@ function u32le(d, off) {
 // Experimental WHOOP 4.0 skin-temp raw scale from community Gen4 captures.
 // It turns the observed V12/V24 skin_temp_raw values into plausible °C values
 // (e.g. 1604 -> 37.7°C), but remains an estimate without per-device reference.
+// NOTE: The 96-byte REALTIME_RAW_DATA packet uses a different formula (raw - 25 = °C).
+// These may be different sensor readings or different firmware encodings.
 const SKIN_TEMP_RAW_PER_C = 42.5;
-function crc32Whoop(data) {
-  // WHOOP-specific CRC-32/MPEG2 variant used by the 96-byte REALTIME_RAW_DATA
+function crc32Mpeg2(data) {
+  // CRC-32/MPEG2 variant used by the 96-byte REALTIME_RAW_DATA
   // packet. Polynomial 0x04C11DB7, initial 0xFFFFFFFF, final XOR 0x00000000,
   // reflected = false.  Taken from whoop-reader's crc32_whoop().
   let crc = 0xFFFFFFFF;
@@ -68,7 +70,7 @@ export function parseRealtimeRaw(data) {
   // CRC-32 verification when the packet is full length.
   if (data.length >= 96) {
     const expected = u32le(data, 92);
-    const actual = crc32Whoop(data.subarray(0, 92));
+    const actual = crc32Mpeg2(data.subarray(0, 92));
     if (actual !== expected) return null;
   }
 
@@ -294,9 +296,7 @@ export function parseResponse(cmd, data) {
 
 // Avoid circular import while keeping the helper here.
 function CommandNameOrUnknown(cmd) {
-  // Lazy lookup — packet.js exports CommandName but we don't want a cycle.
-  // The caller can re-resolve if it cares.
-  return cmd;
+  return CommandName[cmd] ?? `cmd_${cmd}`;
 }
 
 export function parseBatteryResponse(data) {

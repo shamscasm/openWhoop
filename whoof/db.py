@@ -49,6 +49,8 @@ CREATE TABLE IF NOT EXISTS device_events (
     kind        TEXT    NOT NULL,        -- 'connect', 'disconnect', 'battery', 'error'
     detail      TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_events_ts ON device_events(ts_utc);
+CREATE INDEX IF NOT EXISTS idx_events_kind ON device_events(kind);
 
 CREATE TABLE IF NOT EXISTS daily_metrics (
     date            TEXT PRIMARY KEY,    -- YYYY-MM-DD (local)

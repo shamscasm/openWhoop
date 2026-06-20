@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>whoof</title>
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#F2F2F7" />
@@ -28,8 +28,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- Load web fonts non-render-blocking so the PWA paints (and works offline)
      immediately on the system-font fallback; fonts swap in when online. -->
-<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Manrope:wght@200;300;400;500;600;700;800&family=Bebas+Neue&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Manrope:wght@200;300;400;500;600;700;800&family=Bebas+Neue&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"></noscript>
+<link rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Bebas+Neue&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Bebas+Neue&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"></noscript>
+<noscript><style>.content{display:none}</style><div style="padding:40px;text-align:center;font-family:system-ui,sans-serif;"><h1>JavaScript required</h1><p>whoof runs entirely in your browser and needs JavaScript to connect to your WHOOP strap and compute health metrics.</p></div></noscript>
 <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
@@ -42,7 +43,7 @@
   <div id="ble-bar-right">
     <button id="mvp-connect">Connect</button>
     <button id="mvp-disconnect" style="display:none;">Disconnect</button>
-    <button class="icon-btn" id="open-settings" title="Settings">
+    <button class="icon-btn" id="open-settings" title="Settings" aria-label="Open settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
   </div>
@@ -81,11 +82,11 @@
       <div class="date-pill"><span class="dot"></span><span id="topbar-date">Today</span></div>
     </div>
     <div class="top-bar-right">
-      <button class="icon-btn sync-indicator" id="sync-indicator" title="Cloud sync">
+      <button class="icon-btn sync-indicator" id="sync-indicator" title="Cloud sync" aria-label="Cloud sync status">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         <span class="sync-dot" id="sync-dot"></span>
       </button>
-      <button class="icon-btn" title="Notifications">
+      <button class="icon-btn" title="Notifications" aria-label="Notifications">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>
         <span class="badge-count" id="topbar-insight-count">0</span>
       </button>
@@ -93,7 +94,7 @@
   </header>
 
   <!-- Desktop tab bar — visible on tablets/desktop, hidden on mobile -->
-  <nav class="desktop-tabs" id="desktop-tabs">
+  <nav class="desktop-tabs" id="desktop-tabs" role="tablist">
     <button class="tab" data-tab="overview">Today</button>
     <button class="tab" data-tab="recovery">Recovery</button>
     <button class="tab" data-tab="sleep">Sleep</button>
@@ -109,7 +110,7 @@
   <section class="tab-panel" data-panel="overview">
     <header class="panel-header">
       <div>
-        <h1 class="welcome-text">Good morning, Shams</h1>
+        <h1 class="welcome-text">Good morning</h1>
         <div class="panel-subtitle">Your body's signals, all in one place.</div>
       </div>
       <span class="panel-date" id="overview-date"></span>
@@ -807,7 +808,7 @@
       <div class="card span-4" style="display:flex; flex-direction:column; min-height:62vh;">
         <div id="coach-log" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding:6px 2px;"></div>
         <form id="coach-form" style="display:flex; gap:8px; margin-top:12px;">
-          <input id="coach-input" type="text" autocomplete="off" enterkeyhint="send"
+          <input id="coach-input" type="text" autocomplete="off" enterkeyhint="send" maxlength="1000"
             placeholder="e.g. Why is my recovery low today?"
             style="flex:1; padding:12px 14px; border-radius:10px; border:1px solid rgba(255,255,255,.12); background:rgba(255,255,255,.04); color:var(--text); font-size:14px;" />
           <button class="primary" type="submit" id="coach-send">Send</button>

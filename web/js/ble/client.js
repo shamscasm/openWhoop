@@ -187,13 +187,23 @@ export class WhoopClient {
     try { this.charDiag = await service.getCharacteristic(f.diag); }
     catch { this.charDiag = null; }
 
-    this.charData.addEventListener('characteristicvaluechanged', (e) => this._onData(e));
+    // Remove old listeners before adding new ones to prevent stacking on reconnect
+    if (this._onDataBound) {
+      this.charData?.removeEventListener('characteristicvaluechanged', this._onDataBound);
+      this.charResp?.removeEventListener('characteristicvaluechanged', this._onRespBound);
+      this.charEvent?.removeEventListener('characteristicvaluechanged', this._onEventBound);
+    }
+    this._onDataBound = (e) => this._onData(e);
+    this._onRespBound = (e) => this._onResponse(e);
+    this._onEventBound = (e) => this._onEvent(e);
+
+    this.charData.addEventListener('characteristicvaluechanged', this._onDataBound);
     await this.charData.startNotifications();
 
-    this.charResp.addEventListener('characteristicvaluechanged', (e) => this._onResponse(e));
+    this.charResp.addEventListener('characteristicvaluechanged', this._onRespBound);
     await this.charResp.startNotifications();
 
-    this.charEvent.addEventListener('characteristicvaluechanged', (e) => this._onEvent(e));
+    this.charEvent.addEventListener('characteristicvaluechanged', this._onEventBound);
     await this.charEvent.startNotifications();
 
     // 5.0 straps ignore every command until this CLIENT_HELLO lands, so a failed

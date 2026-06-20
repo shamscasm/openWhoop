@@ -135,8 +135,12 @@ function setTab(name) {
   if (name !== activeTab) _browseDate = null;
   activeTab = name;
   // Sidebar tabs + mobile bottom-nav tabs share .active styling
-  document.querySelectorAll(".tab, .mtab").forEach((t) =>
-    t.classList.toggle("active", t.dataset.tab === name));
+  document.querySelectorAll(".tab, .mtab").forEach((t) => {
+    const isActive = t.dataset.tab === name;
+    t.classList.toggle("active", isActive);
+    t.setAttribute("aria-current", isActive ? "page" : "false");
+    if (t.classList.contains("tab")) t.setAttribute("aria-selected", isActive ? "true" : "false");
+  });
   document.querySelectorAll(".tab-panel").forEach((p) =>
     p.classList.toggle("active", p.dataset.panel === name));
   history.replaceState(null, "", "#" + name);
@@ -164,16 +168,25 @@ function initTabs() {
 }
 
 async function loadActiveTab() {
-  switch (activeTab) {
-    case "overview": return loadOverview();
-    case "recovery": return loadRecovery();
-    case "sleep":    return loadSleep();
-    case "strain":   return loadStrain();
-    case "trends":   return loadTrends();
-    case "live":     return loadLive();
-    case "body":     return loadBody();
-    case "activity": return loadActivity();
-    case "coach":    return loadCoach();
+  const panel = document.querySelector(`.tab-panel[data-panel="${activeTab}"]`);
+  if (panel) panel.classList.add("loading");
+  try {
+    switch (activeTab) {
+      case "overview": return await loadOverview();
+      case "recovery": return await loadRecovery();
+      case "sleep":    return await loadSleep();
+      case "strain":   return await loadStrain();
+      case "trends":   return await loadTrends();
+      case "live":     return await loadLive();
+      case "body":     return await loadBody();
+      case "activity": return await loadActivity();
+      case "coach":    return await loadCoach();
+    }
+  } catch (e) {
+    console.error(`[loadActiveTab] ${activeTab} failed:`, e);
+    setStatus(`error: ${e.message}`);
+  } finally {
+    if (panel) panel.classList.remove("loading");
   }
 }
 
@@ -229,6 +242,8 @@ async function sendCoachMessage(text) {
   if (send) send.disabled = true;
   coachBubble("user", msg);
   _coachHistory.push({ role: "user", content: msg });
+  // Cap history to prevent memory leak on long sessions
+  if (_coachHistory.length > 50) _coachHistory = _coachHistory.slice(-30);
   const thinking = coachBubble("assistant", "…");
   try {
     const res = await fetch("/api/coach", {
@@ -254,7 +269,7 @@ async function sendCoachMessage(text) {
 
 /* ───────────────────────────── Status line ─────────────────────────── */
 
-function setStatus(html) { $("status-line").innerHTML = html; }
+function setStatus(html) { const el = $("status-line"); if (el) el.innerHTML = html; }
 
 function fmtAgo(ts) {
   const ago = Math.round((Date.now() - ts) / 1000);
@@ -285,7 +300,7 @@ async function refreshStatus() {
     if (s.latest_battery) html += `<span class="stat-item">🔋 Battery <strong>${s.latest_battery.detail}</strong></span>`;
     setStatus(html);
   } catch (e) {
-    setStatus(`<span class="stat-item">⚠️ error: ${e.message}</span>`);
+    setStatus(`<span class="stat-item">⚠️ error: ${escapeHtml(e.message)}</span>`);
   }
 }
 
@@ -589,7 +604,7 @@ async function loadOverview() {
   const hour = today_d.getHours();
   const greeting = hour < 5 ? "Late night" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : hour < 22 ? "Good evening" : "Good night";
   const welcomeEl = document.querySelector(".welcome-text");
-  if (welcomeEl) welcomeEl.textContent = `${greeting}, Shams!`;
+  if (welcomeEl) welcomeEl.textContent = `${greeting}!`;
 
   const m = overview.metrics || {};
   const trend7 = overview.trend7 || [];
@@ -796,10 +811,10 @@ async function loadOverview() {
         `<div class="timeline-item">
           <div class="timeline-dot" style="background:${it.dot}"></div>
           <div class="timeline-body">
-            <div class="timeline-title">${it.title}</div>
-            ${it.meta ? `<div class="timeline-meta">${it.meta}</div>` : ""}
+            <div class="timeline-title">${escapeHtml(it.title)}</div>
+            ${it.meta ? `<div class="timeline-meta">${escapeHtml(it.meta)}</div>` : ""}
           </div>
-          <div class="timeline-time">${it.time}</div>
+          <div class="timeline-time">${escapeHtml(it.time)}</div>
         </div>`
       ).join("");
     } else {
@@ -930,7 +945,7 @@ function renderWorkoutList(el, workouts) {
   el.innerHTML = workouts.map((w) => {
     const start = new Date(w.start_utc);
     const dur = Math.round((w.duration_seconds || 0) / 60);
-    const labelTxt = w.label || "Workout";
+    const labelTxt = escapeHtml(w.label || "Workout");
     return `<div class="workout-row" data-workout-id="${w.id}">
       <div class="wo-time">${start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}<br><span style="opacity:0.6">${dur} min</span></div>
       <div>
@@ -1053,7 +1068,8 @@ async function loadRecovery() {
       (<span style="color:${color}">${sign}${Math.abs(dev).toFixed(2)}°C vs. baseline</span>)
     </div>`;
   }
-  $("recovery-components").innerHTML = hrvTagLine + rhrTagLine + skinTagLine + comps.map((c) => `
+  const recoveryCompsEl = $("recovery-components");
+  if (recoveryCompsEl) recoveryCompsEl.innerHTML = hrvTagLine + rhrTagLine + skinTagLine + comps.map((c) => `
     <div class="component-row">
       <div class="name">${c.name}</div>
       <div class="barwrap"><div class="bar" style="width:${c.v == null ? 0 : Math.max(0, Math.min(100, c.v))}%;background:${recoveryColor(c.v)}"></div></div>
@@ -1188,18 +1204,20 @@ async function loadSleep() {
 
   const m = data.summary || {};
   drawHypnogram($("hypnogram"), data.stages);
-  $("hypnogram-legend").innerHTML = ["wake", "light", "rem", "deep"].map((s) =>
+  const hypnogramLegendEl = $("hypnogram-legend");
+  if (hypnogramLegendEl) hypnogramLegendEl.innerHTML = ["wake", "light", "rem", "deep"].map((s) =>
     `<span><span class="swatch" style="background:${COLORS.stage[s]}"></span>${s}</span>`
   ).join("");
 
   // Treat sleep_minutes ≤ 0 as "no real sleep data" (rollup writes zeros)
   const hasSleep = m.sleep_minutes != null && m.sleep_minutes > 0;
 
-  $("sleep-total").textContent = hasSleep ? fmtHM(m.sleep_minutes) : "—";
-  $("sleep-performance").textContent = hasSleep ? (m.sleep_performance_pct ?? "—") : "—";
-  $("sleep-need-line").textContent = (hasSleep && m.sleep_need_minutes)
+  const setSleepTxt = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  setSleepTxt("sleep-total", hasSleep ? fmtHM(m.sleep_minutes) : "—");
+  setSleepTxt("sleep-performance", hasSleep ? (m.sleep_performance_pct ?? "—") : "—");
+  setSleepTxt("sleep-need-line", (hasSleep && m.sleep_need_minutes)
     ? `need ${fmtHM(m.sleep_need_minutes)}`
-    : (m.sleep_need_minutes ? `need ${fmtHM(m.sleep_need_minutes)}` : "");
+    : (m.sleep_need_minutes ? `need ${fmtHM(m.sleep_need_minutes)}` : ""));
   if ($("sleep-source")) {
     const source = m.sleep_source ? (m.sleep_source === 'motion+hr' ? 'Motion + HR' : 'HR-only fallback') : '—';
     $("sleep-source").textContent = hasSleep ? `Source: ${source}` : '—';
@@ -1209,10 +1227,10 @@ async function loadSleep() {
     $("sleep-confidence").textContent = hasSleep && conf != null ? `Confidence: ${Math.round(conf)}%` : '';
   }
   const debt = m.sleep_debt_minutes;
-  $("sleep-debt").textContent = debt == null ? "—" : (debt / 60).toFixed(1);
-  $("sleep-consistency").textContent = hasSleep ? (m.sleep_consistency_pct ?? "—") : "—";
-  $("sleep-resp").textContent = hasSleep ? (m.respiratory_rate ?? "—") : "—";
-  $("sleep-spo2").textContent = hasSleep ? (m.avg_spo2 ?? "—") : "—";
+  setSleepTxt("sleep-debt", debt == null ? "—" : (debt / 60).toFixed(1));
+  setSleepTxt("sleep-consistency", hasSleep ? (m.sleep_consistency_pct ?? "—") : "—");
+  setSleepTxt("sleep-resp", hasSleep ? (m.respiratory_rate ?? "—") : "—");
+  setSleepTxt("sleep-spo2", hasSleep ? (m.avg_spo2 ?? "—") : "—");
 
   // Quality score (composite) — suppress when no sleep
   const quality = hasSleep ? (data.quality || {}) : {};
@@ -1231,7 +1249,8 @@ async function loadSleep() {
       consistency: "Consistency",
       debt:        "Debt",
     };
-    $("sleep-quality-breakdown").innerHTML = Object.entries(quality.breakdown || {})
+    const qualityBreakdownEl = $("sleep-quality-breakdown");
+    if (qualityBreakdownEl) qualityBreakdownEl.innerHTML = Object.entries(quality.breakdown || {})
       .map(([k, v]) => `<div>${labels[k] || k}</div><div style="text-align:right; font-weight:600; color:var(--fg2);">${v}</div>`)
       .join("");
     // Quality ring
@@ -1266,7 +1285,8 @@ async function loadSleep() {
     { k: "Wake",  v: m.wake_minutes        || 0, c: COLORS.stage.wake },
   ];
   const tot = stages.reduce((a, b) => a + b.v, 0) || 1;
-  $("stage-bars").innerHTML = stages.map((s) => `
+  const stageBarsEl = $("stage-bars");
+  if (stageBarsEl) stageBarsEl.innerHTML = stages.map((s) => `
     <div class="row">
       <div class="lbl">${s.k}</div>
       <div class="barwrap"><div class="bar" style="width:${s.v / tot * 100}%;background:${s.c}"></div></div>
@@ -1339,14 +1359,17 @@ async function loadStrain() {
   if ($("strain-hero-ring")) {
     drawRing($("strain-hero-ring"), m.strain_score, "#03B5F3", 21, { stroke: 22, colorTo: "#00D4FF" });
   }
-  $("strain-big").textContent = m.strain_score == null ? "—" : m.strain_score.toFixed(1);
-  $("strain-label").textContent = m.strain_score == null ? "no activity yet" : strainLabel(m.strain_score).toUpperCase();
+  const strainBigEl = $("strain-big");
+  if (strainBigEl) strainBigEl.textContent = m.strain_score == null ? "—" : m.strain_score.toFixed(1);
+  const strainLabelEl = $("strain-label");
+  if (strainLabelEl) strainLabelEl.textContent = m.strain_score == null ? "no activity yet" : strainLabel(m.strain_score).toUpperCase();
   if ($("strain-label")) $("strain-label").style.color = m.strain_score == null ? "var(--text-faint)" : "var(--strain)";
   if ($("strain-target")) {
     const coach = recoveryCoach(m.recovery_score);
     $("strain-target").textContent = coach ? `Based on recovery: ${coach.split("·")[1]?.trim() ?? ""}` : "";
   }
-  $("strain-cals").textContent = fmtInt(m.calories);
+  const strainCalsEl = $("strain-cals");
+  if (strainCalsEl) strainCalsEl.textContent = fmtInt(m.calories);
 
   // Zone-weighted strain (interpretable companion score)
   if ($("strain-zone")) {
@@ -1470,7 +1493,8 @@ async function loadTrends() {
     fetchJSON(`/api/trends?metric=${metric}&days=${days}`),
     fetchJSON(`/api/history?days=${days}`),
   ]);
-  $("trend-title").textContent = `${metricLabel(metric)} · ${days} days`;
+  const trendTitleEl = $("trend-title");
+  if (trendTitleEl) trendTitleEl.textContent = `${metricLabel(metric)} · ${days} days`;
 
   const labels = trend.series.map((r) => r.date.slice(5));
   const rawValues = trend.series.map((r) => r.value);
@@ -1574,6 +1598,8 @@ function metricLabel(m) {
     respiratory_rate: "Respiratory rate",
     calories: "Calories",
     stress_avg: "Stress avg",
+    steps: "Steps",
+    active_energy_kcal: "Active kcal",
   }[m] || m;
 }
 function metricColor(m) {
@@ -1605,7 +1631,8 @@ function renderTrendsTable(days) {
       return `<td>${v}</td>`;
     }).join("")}</tr>
   `).join("")}</tbody>`;
-  $("trends-table").innerHTML = head + body;
+  const trendsTableEl = $("trends-table");
+  if (trendsTableEl) trendsTableEl.innerHTML = head + body;
 }
 
 /* ───────────────────────────── Body tab ────────────────────────────── */
@@ -1648,6 +1675,7 @@ async function loadBody() {
     `).join("") : `<div class="empty-state">No food logged today.</div>`;
     foodList.querySelectorAll("[data-food-id]").forEach((btn) => {
       btn.addEventListener("click", async () => {
+        if (!confirm("Delete this food entry?")) return;
         await fetchJSON(`/api/food?id=${btn.dataset.foodId}`, { method: "DELETE" });
         loadBody().catch((e) => setStatus("error: " + e.message));
       });
@@ -1963,15 +1991,15 @@ async function loadLive() {
       if (kind === "battery" && detail) detail = `Battery ${detail}`;
       if (kind === "clock") detail = "RTC synced";
       if (detail.length > 40) detail = detail.slice(0, 37) + "...";
-      return `<div class="ev"><span class="kind">${kind}</span><span class="detail" title="${e.detail ?? ""}">${detail}</span><span class="time">${t}</span></div>`;
+      return `<div class="ev"><span class="kind">${escapeHtml(kind)}</span><span class="detail" title="${escapeHtml(e.detail ?? "")}">${escapeHtml(detail)}</span><span class="time">${escapeHtml(t)}</span></div>`;
     }).join("") || `<div class="muted" style="padding:8px 0;text-align:center;">No events yet</div>`;
   }
 
   const sampleRate = data.points.length / 300;
   $("live-stats").innerHTML = `
-    <div class="row"><span class="k">Points in window</span><span class="v">${data.points.length}</span></div>
-    <div class="row"><span class="k">Effective rate</span><span class="v">${sampleRate.toFixed(2)} Hz</span></div>
-    <div class="row"><span class="k">Server time</span><span class="v">${new Date(data.now_utc).toLocaleTimeString()}</span></div>
+    <div class="kv-row"><span class="k">Points in window</span><span class="v">${data.points.length}</span></div>
+    <div class="kv-row"><span class="k">Effective rate</span><span class="v">${sampleRate.toFixed(2)} Hz</span></div>
+    <div class="kv-row"><span class="k">Server time</span><span class="v">${new Date(data.now_utc).toLocaleTimeString()}</span></div>
   `;
 }
 
@@ -2025,13 +2053,18 @@ function initDrawer() {
 }
 
 async function loadProfile() {
-  const p = await fetchJSON("/api/profile");
-  const form = $("settings-form");
-  form.age.value = p.age ?? "";
-  form.sex.value = p.sex ?? "";
-  form.weight_kg.value = p.weight_kg ?? "";
-  form.height_cm.value = p.height_cm ?? "";
-  form.max_hr_override.value = p.max_hr_override ?? "";
+  try {
+    const p = await fetchJSON("/api/profile");
+    const form = $("settings-form");
+    if (!form) return;
+    form.age.value = p.age ?? "";
+    form.sex.value = p.sex ?? "";
+    form.weight_kg.value = p.weight_kg ?? "";
+    form.height_cm.value = p.height_cm ?? "";
+    form.max_hr_override.value = p.max_hr_override ?? "";
+  } catch (e) {
+    console.warn("[profile] load failed:", e.message);
+  }
 }
 
 /* ───────────────────────────── Trends control ──────────────────────── */
@@ -2208,16 +2241,16 @@ function initSleepAlarm() {
   refreshClockDrift();
 
   // Also refresh when BLE client connects/disconnects
-  const checkClient = setInterval(() => {
+  let _alarmCheckClient = setInterval(() => {
     const client = getBleClient();
     if (client && client.connected) {
       refreshClockDrift();
-      clearInterval(checkClient);
+      clearInterval(_alarmCheckClient);
     }
   }, 2000);
 
   // Periodic alarm checker (fires browser notification when alarm is due)
-  setInterval(() => {
+  let _alarmInterval = setInterval(() => {
     const cfg = loadAlarmConfig();
     if (!cfg.armed || !cfg.time) return;
     const [h, m] = cfg.time.split(":").map(Number);

@@ -32,14 +32,16 @@ export const SYNCABLE = Object.keys(STORES).filter((s) => s !== 'captures');
 //   upsert: put by the store's stable keyPath (here: daily_metrics by `date`).
 //   fill:   put incoming only if the local store is empty (singleton profile).
 const MERGE = {
-  samples:       { mode: 'append', key: (r) => `${r.ts_utc}#${r.sequence ?? 0}` },
-  sessions:      { mode: 'append', key: (r) => `${r.started_at}` },
-  device_events: { mode: 'append', key: (r) => `${r.ts_utc}#${r.kind ?? ''}` },
-  sleep_stages:  { mode: 'append', key: (r) => `${r.date}#${r.start_utc}` },
-  workouts:      { mode: 'append', key: (r) => `${r.start_utc ?? `${r.date}#${r.label ?? ''}`}` },
-  daily_metrics: { mode: 'upsert' },
-  journal:       { mode: 'append', key: (r) => `${r.date}` },
-  profile:       { mode: 'fill' },
+  samples:             { mode: 'append', key: (r) => `${r.ts_utc}#${r.sequence ?? 0}` },
+  sessions:            { mode: 'append', key: (r) => `${r.started_at}` },
+  device_events:       { mode: 'append', key: (r) => `${r.ts_utc}#${r.kind ?? ''}` },
+  sleep_stages:        { mode: 'append', key: (r) => `${r.date}#${r.start_utc}` },
+  workouts:            { mode: 'append', key: (r) => `${r.start_utc ?? `${r.date}#${r.label ?? ''}`}` },
+  daily_metrics:       { mode: 'upsert' },
+  journal:             { mode: 'append', key: (r) => `${r.date}` },
+  profile:             { mode: 'fill' },
+  food_entries:        { mode: 'append', key: (r) => `${r.date}#${r.meal ?? ''}#${r.name ?? ''}` },
+  body_weight_entries:  { mode: 'append', key: (r) => `${r.date}` },
 };
 
 function getAll(db, store) {
@@ -81,20 +83,49 @@ export async function mergeSnapshot(db, snapshot) {
       else stats[store] = 0;
       continue;
     }
-    // append
-    const existing = await getAll(db, store);
-    const seen = new Set(existing.map(cfg.key));
-    const fresh = [];
-    for (const row of incoming) {
-      const k = cfg.key(row);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      const copy = { ...row };
-      delete copy.id; // local store assigns a fresh autoIncrement id
-      fresh.push(copy);
+    // append — use cursor for large stores to avoid loading everything into memory
+    if (store === 'samples' || store === 'device_events') {
+      const seen = new Set();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(store);
+        const s = tx.objectStore(store);
+        const req = s.openCursor();
+        req.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (cursor) {
+            seen.add(cfg.key(cursor.value));
+            cursor.continue();
+          }
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      const fresh = [];
+      for (const row of incoming) {
+        const k = cfg.key(row);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const copy = { ...row };
+        delete copy.id;
+        fresh.push(copy);
+      }
+      await putAll(db, store, fresh);
+      stats[store] = fresh.length;
+    } else {
+      const existing = await getAll(db, store);
+      const seen = new Set(existing.map(cfg.key));
+      const fresh = [];
+      for (const row of incoming) {
+        const k = cfg.key(row);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const copy = { ...row };
+        delete copy.id;
+        fresh.push(copy);
+      }
+      await putAll(db, store, fresh);
+      stats[store] = fresh.length;
     }
-    await putAll(db, store, fresh);
-    stats[store] = fresh.length;
   }
   return stats;
 }

@@ -54,7 +54,6 @@ self.addEventListener('message', (event) => {
 const IMMUTABLE_PATHS = [
   '/vendor/',
   '/icons/',
-  '/manifest.json',
 ];
 
 function isImmutable(url) {

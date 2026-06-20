@@ -37,12 +37,6 @@ import { analyseTagCorrelations, tagInsights } from './metrics/correlate.js';
 import { unlock, lock, locked, syncNow, loadConfig, saveConfig } from './sync/client.js';
 
 const $ = (id) => document.getElementById(id);
-const statusEl     = $('mvp-status');
-const hrEl         = $('mvp-hr');
-const countEl      = $('mvp-count');
-const errorEl      = $('mvp-error');
-const connectBtn   = $('mvp-connect');
-const disconnectBtn = $('mvp-disconnect');
 
 let db = null;
 let client = null;
@@ -54,22 +48,28 @@ const FLUSH_INTERVAL_MS = 1000;
 let _statsInterval = null;
 let _flushInterval = null;
 function showError(msg) {
-  errorEl.textContent = msg;
-  errorEl.style.display = 'block';
+  const el = $('mvp-error');
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
 }
 
 function clearError() {
-  errorEl.style.display = 'none';
+  const el = $('mvp-error');
+  if (el) el.style.display = 'none';
 }
 
 function setStatus(state) {
-  statusEl.textContent = state;
-  statusEl.style.color =
-    state === 'connected'    ? 'var(--rec-good)' :
-    state === 'reconnecting' ? '#fa3' :
-    state === 'connecting'   ? '#fc6' : '#888';
-  connectBtn.style.display    = (state === 'disconnected') ? 'block' : 'none';
-  disconnectBtn.style.display = (state === 'connected')    ? 'block' : 'none';
+  const statusEl = $('mvp-status');
+  const connectBtn = $('mvp-connect');
+  const disconnectBtn = $('mvp-disconnect');
+  if (statusEl) {
+    statusEl.textContent = state;
+    statusEl.style.color =
+      state === 'connected'    ? 'var(--rec-good)' :
+      state === 'reconnecting' ? '#fa3' :
+      state === 'connecting'   ? '#fc6' : '#888';
+  }
+  if (connectBtn) connectBtn.style.display    = (state === 'disconnected') ? 'block' : 'none';
+  if (disconnectBtn) disconnectBtn.style.display = (state === 'connected')    ? 'block' : 'none';
   // Update settings-drawer strap status
   const drawerStatus = $('mvp-data-status');
   if (drawerStatus) drawerStatus.textContent = state;
@@ -97,8 +97,10 @@ function updateStrapIndicators(isWorn, charging) {
   }
 }
 
+let _flushing = false;
 async function flushLoop() {
-  if (!db || buffer.length === 0) return;
+  if (_flushing || !db || buffer.length === 0) return;
+  _flushing = true;
   const batch = buffer;
   buffer = [];
   try {
@@ -106,14 +108,36 @@ async function flushLoop() {
   } catch (err) {
     console.error('[mvp] flush failed', err);
     buffer.unshift(...batch); // requeue
+  } finally {
+    _flushing = false;
   }
 }
 
-_flushInterval = setInterval(flushLoop, FLUSH_INTERVAL_MS);
+function _startFlushInterval() {
+  if (_flushInterval) clearInterval(_flushInterval);
+  _flushInterval = setInterval(flushLoop, FLUSH_INTERVAL_MS);
+}
+
+function _stopFlushInterval() {
+  if (_flushInterval) { clearInterval(_flushInterval); _flushInterval = null; }
+}
+
+// Flush remaining samples before the tab closes
+window.addEventListener('beforeunload', () => {
+  if (db && buffer.length > 0) {
+    const batch = buffer;
+    buffer = [];
+    try {
+      // Synchronous-ish: use sendBeacon or just attempt best-effort flush
+      navigator.sendBeacon?.('/api/flush-pending', JSON.stringify(batch));
+    } catch {}
+  }
+});
 
 async function setupAndConnect(deviceToUse = null) {
   clearError();
   _startStatsInterval();
+  _startFlushInterval();
   if (!navigator.bluetooth) {
     const ua = navigator.userAgent;
     const isIPhone = /iPhone|iPad|iPod/.test(ua);
@@ -153,7 +177,8 @@ async function setupAndConnect(deviceToUse = null) {
       }
       _lastHr = hr;
       const txt = Math.round(hr).toString();
-      hrEl.textContent = txt;
+      const hrEl = $('mvp-hr');
+      if (hrEl) hrEl.textContent = txt;
       const liveHr = document.getElementById('live-hr');
       if (liveHr) liveHr.textContent = txt;
       const nowHr = document.getElementById('now-hr');
@@ -167,7 +192,8 @@ async function setupAndConnect(deviceToUse = null) {
     if (nowAgo) nowAgo.textContent = 'live';
 
     sampleCount += 1;
-    countEl.textContent = sampleCount.toString();
+    const countEl = $('mvp-count');
+    if (countEl) countEl.textContent = sampleCount.toString();
     recordSampleStats(rrList.length > 0);
 
     const tsUtc = isoUtcNow();
@@ -570,6 +596,7 @@ disconnectBtn.addEventListener('click', async () => {
     await logEvent(db, 'disconnect', `samples=${sampleCount}`);
   }
   if (_statsInterval) { clearInterval(_statsInterval); _statsInterval = null; }
+  _stopFlushInterval();
   announceDisconnected();
 });
 
@@ -696,12 +723,14 @@ async function initSyncUI() {
 
   if (!syncIdInput) return;
 
-  // Load or generate syncId
+  // Load or generate syncId (must be 64 hex chars for crypto + server auth)
   const cfg = loadConfig();
-  if (cfg?.syncId) {
+  if (cfg?.syncId && /^[a-f0-9]{64}$/.test(cfg.syncId)) {
     syncIdInput.value = cfg.syncId;
   } else {
-    const id = crypto.randomUUID();
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const id = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
     saveConfig({ syncId: id });
     syncIdInput.value = id;
   }
@@ -815,7 +844,6 @@ function _startStatsInterval() {
       `${Math.round(100 * recentRrTotal / recentSampleTotal)}%` : '—';
   }, 1000);
 }
-_startStatsInterval();
 
 // ----- Diagnostics panel ---------------------------------------------------
 
@@ -1008,7 +1036,7 @@ async function refreshCapturesList() {
   }).join('');
 }
 function escapeHtml(s) {
-  return String(s).replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
+  return String(s ?? "").replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c]));
 }
 document.addEventListener('click', async (e) => {
   const t = e.target;
@@ -1027,6 +1055,7 @@ document.addEventListener('click', async (e) => {
     a.click();
     URL.revokeObjectURL(a.href);
   } else if (action === 'delete') {
+    if (!confirm('Delete this capture? This cannot be undone.')) return;
     await deleteCapture(db, id);
     refreshCapturesList();
   }
@@ -2044,6 +2073,11 @@ window.addEventListener('hashchange', () => {
   if (location.hash === '#trends') renderRecoveryCal();
 });
 window.addEventListener('whoop-data-changed', () => renderRecoveryCal());
+
+// Render calendar on initial load if already on trends tab
+if (location.hash === '#trends') {
+  setTimeout(() => renderRecoveryCal(), 100);
+}
 
 // ----- URL ?tab= routing for PWA manifest shortcuts -----------------------
 // Manifest shortcuts use ?tab=<name>; app.js reads #hash. Bridge both so

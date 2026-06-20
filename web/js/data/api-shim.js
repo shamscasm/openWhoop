@@ -672,7 +672,9 @@ async function handle(url, opts = {}) {
 
   // POST endpoints
   if (method === 'POST' && path === '/api/profile') {
-    const body = opts.body ? JSON.parse(opts.body) : {};
+    let body;
+    try { body = opts.body ? JSON.parse(opts.body) : {}; } catch { return { error: 'invalid json' }; }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'bad_request', message: 'JSON body must be an object' };
     return apiProfilePost(body);
   }
   if (method === 'POST' && path === '/api/recompute') {

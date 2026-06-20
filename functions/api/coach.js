@@ -83,15 +83,20 @@ export async function onRequestPost({ request, env }) {
   ];
 
   try {
-    const result = await env.AI.run(MODEL, { messages, max_tokens: 320 });
+    const aiPromise = env.AI.run(MODEL, { messages, max_tokens: 320 });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('AI inference timeout')), 15000)
+    );
+    const result = await Promise.race([aiPromise, timeoutPromise]);
     const reply = (result && (result.response ?? result.result?.response)) || '';
     if (!reply) {
       return Response.json({ error: 'empty', message: 'No response generated.' }, { status: 502 });
     }
     return Response.json({ reply: reply.trim() });
   } catch (err) {
+    console.error('[coach] inference error:', err);
     return Response.json(
-      { error: 'inference_failed', message: String(err && err.message ? err.message : err) },
+      { error: 'inference_failed', message: 'AI coach is temporarily unavailable. Please try again.' },
       { status: 502 },
     );
   }

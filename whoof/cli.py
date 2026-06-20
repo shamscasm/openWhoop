@@ -218,10 +218,11 @@ def profile(
 @cli.command()
 @click.option("--host", default="127.0.0.1")
 @click.option("--port", default=8765, type=int)
+@click.option("--token", default=None, help="Bearer token for auth. Required when --host is not 127.0.0.1.")
 @click.pass_context
-def dash(ctx: click.Context, host: str, port: int) -> None:
+def dash(ctx: click.Context, host: str, port: int, token: str | None) -> None:
     """Launch the web dashboard at http://HOST:PORT/."""
-    dashboard.serve(host=host, port=port, db_path=ctx.obj["db_path"])
+    dashboard.serve(host=host, port=port, db_path=ctx.obj["db_path"], auth_token=token)
 
 
 # -- Status snapshot -------------------------------------------------------

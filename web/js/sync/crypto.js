@@ -41,7 +41,7 @@ export function hexToBytes(hex) {
 
 // passphrase + syncId → non-extractable AES-GCM-256 key.
 export async function deriveKey(passphrase, syncId) {
-  if (!passphrase) throw new Error('passphrase required');
+  if (!passphrase || passphrase.length < 4) throw new Error('passphrase must be at least 4 characters');
   if (!SYNC_ID_RE.test(syncId)) throw new Error('invalid syncId');
   const baseKey = await subtle().importKey(
     'raw',
