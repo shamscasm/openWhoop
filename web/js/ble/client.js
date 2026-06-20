@@ -513,7 +513,21 @@ export class WhoopClient {
 
   async startRealtime() {
     if (this._family === 'whoop5') return this.startPhysiologyCapture();
+    // For 4.0: start HR stream + enable optical data + start raw data
+    // to get the full 96-byte sensor packets (SpO2, temp, etc.)
     await this._sendCommand(CommandNumber.TOGGLE_REALTIME_HR, new Uint8Array([0x01]));
+    try {
+      await this._sendCommand(CommandNumber.SEND_R10_R11_REALTIME, new Uint8Array([0x01, 0x01]));
+      this._emit('_debug', 'cmd 63 [0x01,0x01] sent (enable R10/R11)');
+    } catch (e) { this._emit('_debug', `cmd 63 enable failed: ${e.message}`); }
+    try {
+      await this._sendCommand(CommandNumber.ENABLE_OPTICAL_DATA, new Uint8Array([0x01, 0x01]));
+      this._emit('_debug', 'cmd ENABLE_OPTICAL_DATA sent');
+    } catch (e) { this._emit('_debug', `ENABLE_OPTICAL_DATA failed: ${e.message}`); }
+    try {
+      await this._sendCommand(CommandNumber.TOGGLE_OPTICAL_MODE, new Uint8Array([0x01, 0x01]));
+      this._emit('_debug', 'cmd TOGGLE_OPTICAL_MODE sent');
+    } catch (e) { this._emit('_debug', `TOGGLE_OPTICAL_MODE failed: ${e.message}`); }
   }
 
   async stopRealtime() {
