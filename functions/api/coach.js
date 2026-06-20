@@ -11,7 +11,7 @@
 // is absent (e.g. a preview without Workers AI enabled) we return 503 with a
 // clear message so the UI degrades to its built-in rule-based tips.
 
-const MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const MODEL = '@cf/meta/llama-3.1-8b-instruct-fp8';
 const MAX_MESSAGE = 1000;
 const MAX_HISTORY = 8;
 
