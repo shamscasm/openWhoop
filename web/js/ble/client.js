@@ -240,11 +240,15 @@ export class WhoopClient {
       }
     } catch (e) { this._emit('error', e); }
 
-    // 2b. Disable the type-43 raw data flood (R10/R11) so it doesn't dominate
-    //     BLE airtime (~2 × 1.9 KB/s) and starve the historical offload.
-    try {
-      await this._sendCommand(CommandNumber.SEND_R10_R11_REALTIME, new Uint8Array([0x00]));
-    } catch (e) { this._emit('error', e); }
+    // 2b. For 5.0, disable R10/R11 optical flood before backfill to save BLE
+    //     bandwidth. For 4.0, NEVER send this — cmd 63 [0x00] powers down the
+    //     optical sensor hardware. Once disabled, cmd 81 (START_RAW_DATA) can
+    //     NOT re-enable it. The 4.0 BLE stack handles both streams fine.
+    if (this._family === 'whoop5') {
+      try {
+        await this._sendCommand(CommandNumber.SEND_R10_R11_REALTIME, new Uint8Array([0x00]));
+      } catch (e) { this._emit('error', e); }
+    }
 
     // 3. Start realtime HR/RR stream IMMEDIATELY so the live display works.
     try {

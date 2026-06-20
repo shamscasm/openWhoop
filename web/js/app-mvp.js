@@ -352,12 +352,10 @@ async function setupAndConnect(deviceToUse = null) {
     } catch (err) {
       setDataStatus(`Backfill saved but rollup failed: ${err.message ?? err}`, '#f55');
     }
-    // Safety: ensure raw data mode is active after backfill. Re-enable the
-    // R10/R11 optical stream first (it was disabled for backfill bandwidth),
-    // then restart raw data mode.
-    if (client && client._family !== 'whoop5') {
+    // Safety: ensure raw data mode is active after backfill. On 4.0 we never
+    // disable R10/R11, so just restart raw data if it got interrupted.
+    if (client && client._family !== 'whoop5' && !client._rawActive) {
       try {
-        await client.enableR10R11();
         await client.startRawData();
         diagOut('[raw-mode] restarted after backfill');
       } catch (e) {
@@ -370,8 +368,8 @@ async function setupAndConnect(deviceToUse = null) {
     setDataStatus('Backfill error: ' + msg, '#f55');
     console.error('[mvp] backfill error', err);
     // Ensure raw data mode is active even if backfill failed.
-    if (client && client._family !== 'whoop5') {
-      client.enableR10R11().then(() => client.startRawData()).catch(() => {});
+    if (client && client._family !== 'whoop5' && !client._rawActive) {
+      client.startRawData().catch(() => {});
     }
   });
 
