@@ -282,25 +282,20 @@ function fmtAgo(ts) {
 async function refreshStatus() {
   try {
     const s = await fetchJSON("/api/status");
-    let html = `<span class="stat-item">📊 Samples <strong>${s.sample_count.toLocaleString()}</strong></span>`;
-    html += `<span class="stat-item">📅 Days <strong>${s.days_recorded}</strong></span>`;
+    const items = [];
     if (s.latest_sample) {
       const ago = Math.round((Date.now() - new Date(s.latest_sample.ts_utc)) / 1000);
-      html += `<span class="stat-item">⏱ Last sample <strong>${ago < 60 ? ago + "s" : Math.round(ago / 60) + "m"} ago</strong></span>`;
-    } else {
-      html += `<span class="stat-item">⏱ Last sample <strong>—</strong></span>`;
+      items.push(`<span class="stat-item">Last reading <strong>${ago < 60 ? ago + "s" : Math.round(ago / 60) + "m"} ago</strong></span>`);
     }
-    // Cloud sync time from localStorage (written by runSync after successful R2 sync)
+    if (s.latest_battery) items.push(`<span class="stat-item">Battery <strong>${s.latest_battery.detail}</strong></span>`);
+    items.push(`<span class="stat-item">${s.sample_count.toLocaleString()} samples · ${s.days_recorded} days</span>`);
     try {
       const syncSt = JSON.parse(localStorage.getItem("whoof-sync-status") || "{}");
-      if (syncSt.lastSync) {
-        html += `<span class="stat-item">☁️ Cloud sync <strong>${fmtAgo(syncSt.lastSync)}</strong></span>`;
-      }
+      if (syncSt.lastSync) items.push(`<span class="stat-item">☁️ ${fmtAgo(syncSt.lastSync)}</span>`);
     } catch {}
-    if (s.latest_battery) html += `<span class="stat-item">🔋 Battery <strong>${s.latest_battery.detail}</strong></span>`;
-    setStatus(html);
+    setStatus(items.join(""));
   } catch (e) {
-    setStatus(`<span class="stat-item">⚠️ error: ${escapeHtml(e.message)}</span>`);
+    setStatus(`<span class="stat-item">⚠️ ${escapeHtml(e.message)}</span>`);
   }
 }
 
@@ -711,53 +706,22 @@ async function loadOverview() {
     setVital("vitals-hr", fmtInt(ls.heart_rate_bpm));
     setVital("vitals-resp", ls.respiratory_rate != null ? ls.respiratory_rate.toFixed(1) : "—");
     setVital("vitals-temp", ls.skin_temp_c != null ? ls.skin_temp_c.toFixed(1) + "°" : "—");
+    setVital("vitals-spo2", ls.spo2_pct != null ? ls.spo2_pct.toFixed(0) + "%" : "—");
     const ago = Math.round((Date.now() - new Date(ls.ts_utc)) / 1000);
     setVital("vitals-ago", ago < 60 ? ago + "s" : Math.round(ago / 60) + "m");
   } else {
     setVital("vitals-hr", "—");
     setVital("vitals-resp", "—");
     setVital("vitals-temp", "—");
+    setVital("vitals-spo2", "—");
     setVital("vitals-ago", "—");
   }
   setVital("vitals-battery", overview.battery?.detail ?? "—");
 
-  // ─── Insights ──────────────────────────────────────────────────
-  const insightsList = $("insights-list");
-  if (insightsList) {
-    const cards = [];
-    const addInsight = (icon, title, body, severity) => {
-      cards.push(`<div class="insight ${severity || ""}"><div class="ins-icon">${icon}</div><div><div class="ins-title">${title}</div><div class="ins-body">${body}</div></div></div>`);
-    };
-    if (hasRec && recScore >= 67) {
-      addInsight("⚡", "You're primed", "High recovery — push hard today. Target strain 14–21.", "info");
-    } else if (hasRec && recScore >= 34) {
-      addInsight("💪", "Moderate recovery", "Good capacity for moderate efforts. Target strain 10–13.", "");
-    } else if (hasRec) {
-      addInsight("🛌", "Rest day", "Low recovery. Keep strain below 9 and focus on sleep.", "warn");
-    }
-    const hrvD = deltaVal(m.rmssd_ms, "rmssd_ms");
-    if (hrvD != null && hrvD > 5) {
-      addInsight("📈", "HRV trending up", `HRV is ${Math.round(hrvD)} ms above your 7-day average. Good recovery readiness.`, "info");
-    } else if (hrvD != null && hrvD < -5) {
-      addInsight("📉", "HRV below baseline", `HRV is ${Math.abs(Math.round(hrvD))} ms below your 7-day average.`, "warn");
-    }
-    if (hasSleep && m.deep_sleep_minutes != null) {
-      const deepBase = baseline("deep_sleep_minutes");
-      if (deepBase && m.deep_sleep_minutes > deepBase * 1.2) {
-        addInsight("😴", "Deep sleep above norm", `You got ${Math.round(m.deep_sleep_minutes)} min of deep sleep — ${Math.round((m.deep_sleep_minutes / deepBase - 1) * 100)}% above your average.`, "info");
-      }
-    }
-    if (m.skin_temp_deviation_c != null && Math.abs(m.skin_temp_deviation_c) > 0.5) {
-      addInsight("🌡", "Temperature deviation", `Your skin temp is ${m.skin_temp_deviation_c > 0 ? "elevated" : "lower than normal"} by ${Math.abs(m.skin_temp_deviation_c).toFixed(2)}°C.`, "warn");
-    }
-    if (m.calories != null && m.calories > 500) {
-      addInsight("🔥", "Active day", `You've burned ${fmtInt(m.calories)} kcal today.`, "");
-    }
-    if (m.steps != null && m.steps >= 8000) {
-      addInsight("👟", "Steps are moving", `You've logged ${fmtInt(m.steps)} steps today.`, "info");
-    }
-    insightsList.innerHTML = cards.length ? cards.join("") : '<div class="insight"><div class="ins-icon">📊</div><div><div class="ins-title">No insights yet</div><div class="ins-body">Wear your strap to start getting personalised insights.</div></div></div>';
-  }
+  // ─── Insights are rendered by renderInsights() in app-mvp.js ────
+  // (uses the generateInsights engine from metrics/insights.js)
+  // Refresh on overview load so insights stay current:
+  if (typeof window.renderInsightsFn === 'function') window.renderInsightsFn();
 
   const stepsEl = $("overview-steps");
   const stepsSourceEl = $("overview-steps-source");
@@ -1921,8 +1885,10 @@ async function loadLive() {
     $("live-hr").textContent = fmtInt(last.heart_rate_bpm);
     const liveResp = document.getElementById("live-resp");
     const liveTempEst = document.getElementById("live-temp-est");
+    const liveSpo2 = document.getElementById("live-spo2");
     if (liveResp) liveResp.textContent = last.respiratory_rate != null ? last.respiratory_rate.toFixed(1) : "—";
     if (liveTempEst) liveTempEst.textContent = last.skin_temp_c != null ? last.skin_temp_c.toFixed(1) : "—";
+    if (liveSpo2) liveSpo2.textContent = last.spo2_pct != null ? last.spo2_pct.toFixed(0) : "—";
     const motionEl = document.getElementById("live-motion");
     if (motionEl) motionEl.textContent = last.motion != null ? last.motion.toFixed(0) : "—";
     const motionSourceEl = document.getElementById("live-motion-source");
@@ -2020,6 +1986,12 @@ function initDrawer() {
   $("open-settings").addEventListener("click", open);
   $("close-settings").addEventListener("click", close);
   backdrop.addEventListener("click", close);
+
+  // "More" section buttons — navigate to tab and close drawer
+  for (const [btnId, tab] of [["drawer-coach-btn", "coach"], ["drawer-trends-btn", "trends"], ["drawer-activity-btn", "activity"]]) {
+    const btn = $(btnId);
+    if (btn) btn.addEventListener("click", () => { close(); setTab(tab); });
+  }
 
   $("settings-form").addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -2306,6 +2278,18 @@ function init() {
   setInterval(() => {
     if (activeTab === "live") loadLive().catch(() => {});
   }, 15000);
+  // Periodic mini-rollup: recompute today's daily_metrics every 5 minutes so
+  // steps, strain, calories, and other derived metrics stay current during
+  // active streaming without requiring a page reload or backfill trigger.
+  setInterval(() => {
+    fetchJSON("/api/recompute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    }).then(() => {
+      window.dispatchEvent(new Event('whoop-data-changed'));
+    }).catch(() => {});
+  }, 300_000);
   // Re-render only when app-mvp.js mutates IndexedDB.
   window.addEventListener("whoop-data-changed", () => {
     refreshStatus();

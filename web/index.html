@@ -176,8 +176,12 @@
       </div>
     </div>
 
-    <!-- Live vitals strip -->
+    <!-- Live vitals strip (real-time BLE data) -->
     <div class="vitals-strip" id="vitals-strip">
+      <div class="vitals-item">
+        <span class="vitals-label">LIVE</span>
+      </div>
+      <div class="vitals-divider"></div>
       <div class="vitals-item">
         <span class="vitals-icon">♥</span>
         <span class="vitals-value" id="vitals-hr">—</span>
@@ -192,6 +196,11 @@
       <div class="vitals-item">
         <span class="vitals-icon">🌡</span>
         <span class="vitals-value" id="vitals-temp">—</span>
+      </div>
+      <div class="vitals-divider"></div>
+      <div class="vitals-item">
+        <span class="vitals-icon">O₂</span>
+        <span class="vitals-value" id="vitals-spo2">—</span>
       </div>
       <div class="vitals-divider"></div>
       <div class="vitals-item">
@@ -636,6 +645,10 @@
         <div class="big-num"><span id="live-temp-est">—</span><span class="unit">°C</span></div>
       </div>
       <div class="card">
+        <div class="card-eyebrow">SpO2</div>
+        <div class="big-num"><span id="live-spo2">—</span><span class="unit">%</span></div>
+      </div>
+      <div class="card">
         <div class="card-eyebrow">Battery</div>
         <div class="big-num"><span id="live-battery">—</span></div>
       </div>
@@ -951,6 +964,15 @@
       <button id="mvp-forget" type="button" style="flex:1;">Forget Device</button>
     </div>
   </div>
+  <hr />
+  <div class="strap-drawer-section">
+    <h3>More</h3>
+    <div style="display:flex;gap:6px;margin-top:6px;">
+      <button id="drawer-coach-btn" type="button" style="flex:1;">Coach</button>
+      <button id="drawer-trends-btn" type="button" style="flex:1;">Trends</button>
+      <button id="drawer-activity-btn" type="button" style="flex:1;">Activity</button>
+    </div>
+  </div>
   <div class="drawer-footer">Made by <a href="https://linkedin.com/in/shamscasm" target="_blank" rel="noopener">Shams Khan</a> &middot; Vibeset Technology Inc.</div>
 </aside>
 <div class="backdrop" id="drawer-backdrop"></div>
@@ -973,10 +995,6 @@
     <svg viewBox="0 0 24 24"><path d="M3 12h4l2-7 4 14 2-7h6"/></svg>
     Strain
   </button>
-  <button class="mtab" data-tab="trends" aria-label="Trends">
-    <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>
-    Trends
-  </button>
   <button class="mtab" data-tab="live" aria-label="Live">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/></svg>
     Live
@@ -984,14 +1002,6 @@
   <button class="mtab" data-tab="body" aria-label="Body">
     <svg viewBox="0 0 24 24"><path d="M12 3v18"/><path d="M7 8h10"/><path d="M6 21h12"/><path d="M8 3h8"/></svg>
     Body
-  </button>
-  <button class="mtab" data-tab="activity" aria-label="Activity">
-    <svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-    Activity
-  </button>
-  <button class="mtab" data-tab="coach" aria-label="Coach">
-    <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-    Coach
   </button>
 </nav>
 

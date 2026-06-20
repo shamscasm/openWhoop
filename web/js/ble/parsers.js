@@ -17,11 +17,30 @@ function u32le(d, off) {
 }
 
 // Experimental WHOOP 4.0 skin-temp raw scale from community Gen4 captures.
-// It turns the observed V12/V24 skin_temp_raw values into plausible °C values
-// (e.g. 1604 -> 37.7°C), but remains an estimate without per-device reference.
-// NOTE: The 96-byte REALTIME_RAW_DATA packet uses a different formula (raw - 25 = °C).
-// These may be different sensor readings or different firmware encodings.
+// The 96-byte REALTIME_RAW_DATA packet encodes temp as a uint8 where
+// value − 25 ≈ °C (e.g. 62 → 37°C). The historical v24 record encodes it
+// as a u16 scaled by ~42.5 (e.g. 1604 / 42.5 ≈ 37.7°C).
+// Both formulas are approximate without per-device calibration. We use
+// SKIN_TEMP_RAW_PER_C for historical and the direct formula for realtime.
 const SKIN_TEMP_RAW_PER_C = 42.5;
+
+/**
+ * Estimate SpO2% from raw red/IR ADC values in historical v24 records.
+ * Uses a simplified ratio-of-ratios (R) model:
+ *   R = red_raw / ir_raw
+ *   SpO2 ≈ 110 − 25 × R   (calibration curve typical for wrist PPG sensors)
+ *
+ * This is approximate — the strap's own firmware uses per-device calibration
+ * and AC/DC separation that we don't have. Values outside 70–100% are clamped
+ * to null (impossible readings).
+ */
+export function estimateSpo2FromRaw(spo2Red, spo2Ir) {
+  if (spo2Red == null || spo2Ir == null || spo2Ir === 0) return null;
+  const R = spo2Red / spo2Ir;
+  const spo2 = Math.round(110 - 25 * R);
+  return (spo2 >= 70 && spo2 <= 100) ? spo2 : null;
+}
+
 function crc32Mpeg2(data) {
   // CRC-32/MPEG2 variant used by the 96-byte REALTIME_RAW_DATA
   // packet. Polynomial 0x04C11DB7, initial 0xFFFFFFFF, final XOR 0x00000000,

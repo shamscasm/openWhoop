@@ -150,11 +150,23 @@ export function detectSleepWindow(samples, _nightOf) {
     const end = parseTs(run[run.length - 1]);
     const durationMin = (end.getTime() - start.getTime()) / 60_000;
     if (durationMin < MIN_SLEEP_BLOCK_MINUTES) continue;
+    // Use the midpoint to check if this block falls in the night window.
+    // For very long blocks (>4h), also check start/end to handle blocks
+    // that span across the night boundary (e.g. 22:00–08:00).
     const mid = new Date(start.getTime() + (end.getTime() - start.getTime()) / 2);
-    const h = mid.getHours(); // local hour
-    const inWindow = h >= nightStartH || h < nightEndH;
+    const midH = mid.getHours();
+    const startH = start.getHours();
+    const endH = end.getHours();
+    // A block is "nighttime" if its midpoint, start, or end falls in the
+    // night window. This catches long blocks that start before midnight
+    // but end after, or vice versa.
+    const inWindow = (midH >= nightStartH || midH < nightEndH)
+      || (startH >= nightStartH || startH < nightEndH)
+      || (endH >= nightStartH || endH < nightEndH);
     if (!inWindow) continue;
-    const score = Math.trunc(durationMin);
+    // Score: prefer longer blocks, but heavily penalise blocks shorter than
+    // 3 hours (likely naps that slipped through the window check).
+    const score = durationMin < 180 ? durationMin * 0.3 : durationMin;
     if (best === null || score > best[2]) {
       best = [start, end, score];
     }
@@ -262,7 +274,9 @@ export function classifyStages(samples, window) {
   const rmssdBaseline = rmssdVals.length > 0 ? median(rmssdVals) : 30.0;
   const hasMotionSignal = motionCoverage.some((v) => v > 0);
 
-  // Classify each epoch
+  // Classify each epoch. HR-only mode (no motion data) uses tighter HR
+  // thresholds and RMSSD to distinguish stages, since we can't rely on
+  // accelerometer data to detect wake vs sleep.
   const rawStages = [];
   for (const e of epochStats) {
     const { hr, motion, rmssd } = e;
@@ -270,20 +284,29 @@ export function classifyStages(samples, window) {
       rawStages.push('wake');
       continue;
     }
-    if ((hasMotionSignal && motion != null && motion > 200) || hr > hrBaseline + 12) {
+
+    // Wake detection: motion-based when available, HR-based otherwise.
+    const isMotionWake = hasMotionSignal && motion != null && motion > 200;
+    // HR-only wake: HR significantly above the sleep-median baseline.
+    // Use 15 bpm above median (not min) so REM peaks don't trigger wake.
+    const isHrWake = !hasMotionSignal && hr > hrBaseline + 15;
+    if (isMotionWake || isHrWake) {
       rawStages.push('wake');
     } else if (
-      motion != null &&
-      motion < 30 &&
+      // Deep sleep: very low motion (when available), HR near minimum,
+      // and low HRV variability (parasympathetic dominance).
+      (motion == null || motion < 30) &&
       hr <= hrMin + 5 &&
       (rmssd == null || rmssd <= rmssdBaseline)
     ) {
       rawStages.push('deep');
     } else if (
-      (motion == null || motion < 60) &&
-      hr >= hrMin + 6 &&
+      // REM sleep: moderate HR elevation above minimum, with HRV spike
+      // (sympathetic activation during dreaming). In HR-only mode, use
+      // a wider RMSSD threshold since we can't cross-check with motion.
+      hr >= hrMin + 4 &&
       rmssd != null &&
-      rmssd > rmssdBaseline * 1.1
+      rmssd > rmssdBaseline * (hasMotionSignal ? 1.1 : 1.05)
     ) {
       rawStages.push('rem');
     } else {
@@ -550,7 +573,7 @@ export function respiratoryRate(samples, window) {
     const t = parseTs(r).getTime();
     if (t >= startMs && t < endMs) rrs.push([t, r.rr_interval_ms]);
   }
-  if (rrs.length < 60) return null;
+  if (rrs.length < 30) return null;
 
   // Detrend with a centred moving average to remove HR baseline drift.
   const win = 30;

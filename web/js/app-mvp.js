@@ -3,6 +3,7 @@
 // real Live tab is rewired to talk to IndexedDB.
 
 import { WhoopClient } from './ble/client.js';
+import { estimateSpo2FromRaw } from './ble/parsers.js';
 import { openDb } from './data/db.js';
 import { insertSamplesBatch, startSession, endSession, logEvent } from './data/queries.js';
 import { isoUtcNow } from './util/time.js';
@@ -37,6 +38,9 @@ import { analyseTagCorrelations, tagInsights } from './metrics/correlate.js';
 import { unlock, lock, locked, syncNow, loadConfig, saveConfig } from './sync/client.js';
 
 const $ = (id) => document.getElementById(id);
+
+const connectBtn = $('mvp-connect');
+const disconnectBtn = $('mvp-disconnect');
 
 let db = null;
 let client = null;
@@ -157,9 +161,10 @@ async function setupAndConnect(deviceToUse = null) {
 
   client.on('state', async (s) => {
     setStatus(s);
-    if (s === 'connected' && client._family !== 'whoop5') {
-      try { await client.startRawData(); } catch (e) { console.warn('[raw] start failed', e); }
-    }
+    // Raw data mode is started AFTER backfill completes (in historyComplete
+    // handler below) to avoid racing with the R10/R11 disable in
+    // _postConnectFlow(). Starting on connect would be immediately overridden
+    // by cmd 63 [0x00] which disables optical data for backfill throughput.
     if (s === 'disconnected' && client._rawActive) {
       try { client._rawActive = false; } catch {}
     }
@@ -269,7 +274,7 @@ async function setupAndConnect(deviceToUse = null) {
           ` resp=${rec.respRateRaw}` +
           `${rec.respRateRpm != null ? `/${rec.respRateRpm.toFixed(1)}rpm` : ''}`);
       }
-      // Historical records carry SpO2 raw ADCs, not a processed SpO2 percent.
+      // Historical records carry SpO2 raw ADCs — estimate % from red/IR ratio.
       // Skin temp is an experimental raw-scale estimate; raw is stored too.
       const stemp = Number.isFinite(rec.skinTempC) && rec.skinTempC >= 20 && rec.skinTempC <= 45
         ? rec.skinTempC
@@ -277,7 +282,7 @@ async function setupAndConnect(deviceToUse = null) {
       const resp = Number.isFinite(rec.respRateRpm) && rec.respRateRpm >= 4 && rec.respRateRpm <= 40
         ? rec.respRateRpm
         : null;
-      const spo2 = null;
+      const spo2 = estimateSpo2FromRaw(rec.spo2Red, rec.spo2Ir);
       const ax = rec.accelX ?? null, ay = rec.accelY ?? null, az = rec.accelZ ?? null;
       const mot = rec.motion ?? null;
       const ppg = rec.ppgAmp ?? null, amb = rec.ambientLight ?? null, pqual = rec.ppgQuality ?? null;
@@ -349,11 +354,27 @@ async function setupAndConnect(deviceToUse = null) {
     } catch (err) {
       setDataStatus(`Backfill saved but rollup failed: ${err.message ?? err}`, '#f55');
     }
+    // Restart raw data mode for 4.0 straps — it was stopped during backfill
+    // to avoid BLE congestion. Without this, SpO2, skin temp, accel/motion,
+    // and step tracking all stay dead until reconnect.
+    if (client && client._family !== 'whoop5' && !client._rawActive) {
+      try {
+        await client.startRawData();
+        diagOut('[raw-mode] restarted after backfill');
+      } catch (e) {
+        console.warn('[raw] restart after backfill failed', e);
+      }
+    }
   });
   client.on('historyError', (err) => {
     const msg = err?.message ?? String(err);
     setDataStatus('Backfill error: ' + msg, '#f55');
     console.error('[mvp] backfill error', err);
+    // Even if backfill failed, restart raw data mode so SpO2/temp/motion
+    // still work during the live session.
+    if (client && client._family !== 'whoop5' && !client._rawActive) {
+      client.startRawData().catch(() => {});
+    }
   });
 
   client.on('battery', async (pct) => {
@@ -1269,6 +1290,7 @@ async function renderInsights() {
 
 // Refresh insights whenever data changes
 window.addEventListener('whoop-data-changed', () => renderInsights());
+window.renderInsightsFn = renderInsights;
 
 // ----- Data integrity ticker ---------------------------------------------
 
