@@ -1,0 +1,19 @@
+{
+  "appId": "dev.getwhoof.app",
+  "appName": "whoof",
+  "webDir": "web",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#0b0e14"
+  },
+  "plugins": {
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "Scanning for your WHOOP…",
+        "cancel": "Cancel",
+        "availableDevices": "WHOOP straps",
+        "noDeviceFound": "No WHOOP found"
+      }
+    }
+  }
+}

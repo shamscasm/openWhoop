@@ -1,0 +1,32 @@
+# Cloudflare Pages configuration for whoof
+#
+# Deploys the static `/web` directory to Cloudflare's CDN at
+# https://getwhoof.pages.dev. (`whoof.pages.dev` was already taken on
+# Cloudflare, so the public URL is `getwhoof.pages.dev`.)
+#
+# Usage:
+#   npx wrangler login            # one-time
+#   npm run deploy                # uploads /web, prints a public URL
+#
+# Free tier limits (plenty for personal use):
+#   - 500 builds / month
+#   - Unlimited bandwidth + requests
+#   - Custom domain support if you want one later
+
+name = "getwhoof"
+compatibility_date = "2026-05-21"
+pages_build_output_dir = "./web"
+
+# R2 bucket holding E2E-encrypted sync snapshots (ciphertext only).
+# Bound as env.SYNC in functions/api/sync.js.
+[[r2_buckets]]
+binding = "SYNC"
+bucket_name = "whoof-sync"
+
+# Workers AI — free-tier inference backing the AI Coach (functions/api/coach.js).
+# No API key; usage draws on the account's daily Workers AI allocation.
+[ai]
+binding = "AI"
+
+[observability]
+enabled = true

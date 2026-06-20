@@ -1,0 +1,54 @@
+{
+  "name": "whoof",
+  "short_name": "whoof",
+  "description": "Unofficial, educational dashboard for the WHOOP 4.0 strap. Reads sensor data locally over Bluetooth; runs entirely in your browser. Not affiliated with WHOOP, Inc.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "theme_color": "#07070A",
+  "background_color": "#07070A",
+  "categories": ["health", "fitness", "lifestyle"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [
+    {
+      "src": "/icons/icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-1024.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Overview",
+      "url": "/#overview",
+      "description": "Today's recovery, strain and sleep at a glance"
+    },
+    {
+      "name": "Live",
+      "url": "/#live",
+      "description": "Live heart rate and HRV"
+    }
+  ]
+}
