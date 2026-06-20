@@ -1894,13 +1894,17 @@ async function loadLive() {
     const hasTemp = data.points?.some(p => p.temp != null) ?? false;
     const hasMotion = data.points?.some(p => p.motion != null) ?? false;
     const liveSteps = data.live_steps?.steps;
+    const imuCount = counts['IMU_PARSED'] ?? 0;
+    const raw96Count = counts['RAW96_PARSED'] ?? 0;
+    const unframedCount = counts['UNFRAMED'] ?? 0;
     const lines = [
       `<b>BLE:</b> ${connected ? 'connected' : 'disconnected'} (${family})`,
       `<b>Raw data mode:</b> ${rawActive ? '✅ ACTIVE' : '❌ INACTIVE'}`,
       `<b>Points (5 min):</b> ${points5m}`,
+      `<b>Packets:</b> IMU=${imuCount} | RAW96=${raw96Count} | UNFRAMED=${unframedCount} | HR=${counts['REALTIME_DATA'] ?? 0}`,
       `<b>Sensor data in window:</b> SpO2=${hasSpo2 ? '✅' : '❌'} Temp=${hasTemp ? '✅' : '❌'} Motion=${hasMotion ? '✅' : '❌'}`,
       `<b>Live steps:</b> ${liveSteps ?? '—'}`,
-      `<b>Latest HR:</b> ${last?.heart_rate_bpm ?? '—'} | SpO2=${last?.spo2_pct ?? '—'} | Temp=${last?.skin_temp_c?.toFixed(1) ?? '—'} | Motion=${last?.motion ?? '—'}`,
+      `<b>Latest:</b> HR=${last?.heart_rate_bpm ?? '—'} SpO2=${last?.spo2_pct ?? '—'} Temp=${last?.skin_temp_c?.toFixed(1) ?? '—'} Motion=${last?.motion ?? '—'}`,
     ];
     statusEl.innerHTML = lines.join('<br>');
   }

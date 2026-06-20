@@ -86,39 +86,81 @@ function crc32Mpeg2(data) {
 export function parseRealtimeRaw(data) {
   if (!data || data.length < 20) return null;
 
-  // CRC-32 verification when the packet is full length.
-  if (data.length >= 96) {
+  // 96-byte REALTIME_RAW_DATA (type 43): full sensor packet with SpO2, temp, etc.
+  if (data.length === 96) {
     const expected = u32le(data, 92);
     const actual = crc32Mpeg2(data.subarray(0, 92));
     if (actual !== expected) return null;
+
+    const seq = data[0];
+    const hrRaw = u16le(data, 1);
+    const heartRateBpm = (hrRaw >= 2000 && hrRaw <= 25000) ? hrRaw / 100 : null;
+    const rrRaw = u16le(data, 3);
+    const rrIntervalMs = (rrRaw >= 200 && rrRaw <= 2000) ? rrRaw : null;
+    const spo2Pct = (data[5] >= 70 && data[5] <= 100) ? data[5] : null;
+    const tempRaw = data[6];
+    const skinTempC = (tempRaw >= 55 && tempRaw <= 67) ? tempRaw - 25 : null;
+
+    if (heartRateBpm == null && spo2Pct == null && skinTempC == null) return null;
+
+    return {
+      type: 'realtimeRaw',
+      receivedAt: Date.now(),
+      seq,
+      heartRateBpm,
+      rrIntervalsMs: rrIntervalMs != null ? [rrIntervalMs] : [],
+      spo2Pct,
+      skinTempC,
+      accelX: i16le(data, 7),
+      accelY: i16le(data, 9),
+      accelZ: i16le(data, 11),
+      motion: data[13],
+      rawHex: Array.from(data.subarray(0, 24)).map(b => b.toString(16).padStart(2, '0')).join(' '),
+    };
   }
 
-  const seq = data[0];
-  const hrRaw = u16le(data, 1);
-  const heartRateBpm = (hrRaw >= 2000 && hrRaw <= 25000) ? hrRaw / 100 : null;
-  const rrRaw = u16le(data, 3);
-  const rrIntervalMs = (rrRaw >= 200 && rrRaw <= 2000) ? rrRaw : null;
-  const spo2Pct = (data[5] >= 70 && data[5] <= 100) ? data[5] : null;
-  const tempRaw = data[6];
-  const skinTempC = (tempRaw >= 55 && tempRaw <= 67) ? tempRaw - 25 : null;
+  // 244-byte IMU data stream (type 51): accelerometer + gyroscope samples.
+  // Layout (observed from WHOOP 4.0 with START_RAW_DATA active):
+  //   0-7        header (8 bytes, structure unknown)
+  //   8-155      74 × i16 LE accelerometer samples (X/Y/Z interleaved or single axis)
+  //   156-235    20 × u32 LE (unknown — possibly timestamps or sensor metadata)
+  //   236-243    padding/reserved
+  //
+  // We extract motion from the i16 section: sum of absolute values gives a
+  // rough motion intensity. For step estimation, we treat the i16 array as
+  // a time series of accel magnitude.
+  if (data.length === 244 || data.length === 228 || data.length === 224 || data.length === 220) {
+    // Extract i16 LE samples from bytes 8 onwards (up to byte 156 or packet end - 88)
+    const i16End = Math.min(156, data.length - 88);
+    const samples = [];
+    for (let off = 8; off + 1 < i16End; off += 2) {
+      samples.push(i16le(data, off));
+    }
+    // Compute motion intensity: mean absolute value of the i16 samples
+    if (samples.length === 0) return null;
+    const absSum = samples.reduce((s, v) => s + Math.abs(v), 0);
+    const motion = Math.round(absSum / samples.length);
+    // Use the first 3 samples as a rough accel X/Y/Z proxy
+    const accelX = samples[0] ?? null;
+    const accelY = samples[1] ?? null;
+    const accelZ = samples[2] ?? null;
 
-  // Must have at least one plausible vital to avoid false positives.
-  if (heartRateBpm == null && spo2Pct == null && skinTempC == null) return null;
+    return {
+      type: 'imu',
+      receivedAt: Date.now(),
+      heartRateBpm: null,
+      rrIntervalsMs: [],
+      spo2Pct: null,
+      skinTempC: null,
+      accelX,
+      accelY,
+      accelZ,
+      motion,
+      rawHex: Array.from(data.subarray(0, 24)).map(b => b.toString(16).padStart(2, '0')).join(' '),
+    };
+  }
 
-  return {
-    type: 'realtimeRaw',
-    receivedAt: Date.now(),
-    seq,
-    heartRateBpm,
-    rrIntervalsMs: rrIntervalMs != null ? [rrIntervalMs] : [],
-    spo2Pct,
-    skinTempC,
-    accelX: i16le(data, 7),
-    accelY: i16le(data, 9),
-    accelZ: i16le(data, 11),
-    motion: data[13],
-    rawHex: Array.from(data.subarray(0, 24)).map(b => b.toString(16).padStart(2, '0')).join(' '),
-  };
+  return null;
 }
 
 // --- REALTIME_DATA (type 40) -----------------------------------------------

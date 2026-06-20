@@ -361,7 +361,11 @@ export class WhoopClient {
       // Unframed notification — try 96-byte REALTIME_RAW_DATA (SpO₂/temp/accel).
       const sensor = parseRealtimeRaw(v);
       if (sensor) {
-        this._packetCounts['RAW96_PARSED'] = (this._packetCounts['RAW96_PARSED'] || 0) + 1;
+        if (sensor.type === 'imu') {
+          this._packetCounts['IMU_PARSED'] = (this._packetCounts['IMU_PARSED'] || 0) + 1;
+        } else {
+          this._packetCounts['RAW96_PARSED'] = (this._packetCounts['RAW96_PARSED'] || 0) + 1;
+        }
         this._emit('sensorSample', sensor);
         return { packets: [], error: null };
       }
